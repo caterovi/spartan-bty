@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const {
+  getMyTasks,
+} = require('../utils/myTasks');
 
 function numberValue(value) {
   return Number(value || 0);
@@ -365,6 +368,8 @@ async function getCdmSnapshot() {
       totalRecords: 0,
       pendingRecords: 0,
       completedRecords: 0,
+      confirmedRecords: 0,
+      rejectedRecords: 0,
       statusDistribution: [],
       recentRecords: [],
     };
@@ -393,7 +398,25 @@ async function getCdmSnapshot() {
             THEN 1
             ELSE 0
           END
-        ) AS completed_records
+        ) AS completed_records,
+
+        SUM(
+          CASE
+            WHEN order_status =
+              'confirmed'
+            THEN 1
+            ELSE 0
+          END
+        ) AS confirmed_records,
+
+        SUM(
+          CASE
+            WHEN order_status =
+              'rejected'
+            THEN 1
+            ELSE 0
+          END
+        ) AS rejected_records
 
       FROM orders
 
@@ -534,6 +557,14 @@ async function getCdmSnapshot() {
       summary.completed_records
     ),
 
+    confirmedRecords: numberValue(
+      summary.confirmed_records
+    ),
+
+    rejectedRecords: numberValue(
+      summary.rejected_records
+    ),
+
     statusDistribution:
       statusRows.map((row) => ({
         status:
@@ -553,6 +584,15 @@ async function getSalesDashboard() {
     await pool.execute(`
       SELECT
         COUNT(*) AS total_orders,
+
+        SUM(
+          CASE
+            WHEN order_status =
+              'draft'
+            THEN 1
+            ELSE 0
+          END
+        ) AS draft_orders,
 
         SUM(
           CASE
@@ -580,6 +620,15 @@ async function getSalesDashboard() {
             ELSE 0
           END
         ) AS rejected_orders,
+
+        SUM(
+          CASE
+            WHEN order_status =
+              'cancelled'
+            THEN 1
+            ELSE 0
+          END
+        ) AS cancelled_orders,
 
         SUM(
           CASE
@@ -644,6 +693,10 @@ async function getSalesDashboard() {
         summary.total_orders
       ),
 
+      draftOrders: numberValue(
+        summary.draft_orders
+      ),
+
       forConfirmation:
         numberValue(
           summary.for_confirmation
@@ -657,6 +710,11 @@ async function getSalesDashboard() {
       rejectedOrders:
         numberValue(
           summary.rejected_orders
+        ),
+
+      cancelledOrders:
+        numberValue(
+          summary.cancelled_orders
         ),
 
       ordersToday: numberValue(
@@ -1172,6 +1230,7 @@ async function getFulfillmentDashboard() {
         shippedOut: 0,
         delivered: 0,
         returned: 0,
+        cancelled: 0,
       },
 
       recent: [],
@@ -1244,7 +1303,16 @@ async function getFulfillmentDashboard() {
             THEN 1
             ELSE 0
           END
-        ) AS returned
+        ) AS returned,
+
+        SUM(
+          CASE
+            WHEN fulfillment_status =
+              'cancelled'
+            THEN 1
+            ELSE 0
+          END
+        ) AS cancelled
 
       FROM fulfillment_orders
     `);
@@ -1325,6 +1393,10 @@ async function getFulfillmentDashboard() {
 
       returned: numberValue(
         summary.returned
+      ),
+
+      cancelled: numberValue(
+        summary.cancelled
       ),
     },
 
@@ -1424,28 +1496,16 @@ async function getCrmDashboard(
 
           SUM(
             CASE
-              WHEN EXISTS (
-                SELECT 1
-
-                FROM crm_after_sales_steps
-                  overdue_step
-
-                WHERE
-                  overdue_step.crm_case_id =
-                    cc.id
-
-                  AND overdue_step.follow_up_at
+              WHEN cc.next_follow_up_at
                     IS NOT NULL
 
-                  AND overdue_step.follow_up_at <=
+                AND cc.next_follow_up_at <=
                     NOW()
 
-                  AND overdue_step.step_status
-                    NOT IN (
-                      'completed',
-                      'skipped'
-                    )
-              )
+                AND cc.case_status NOT IN (
+                  'resolved',
+                  'closed'
+                )
               THEN 1
               ELSE 0
             END
@@ -1619,6 +1679,15 @@ async function getMarketingDashboard(
           SUM(
             CASE
               WHEN task_status =
+                'pending'
+              THEN 1
+              ELSE 0
+            END
+          ) AS pending,
+
+          SUM(
+            CASE
+              WHEN task_status =
                 'assigned'
               THEN 1
               ELSE 0
@@ -1669,6 +1738,15 @@ async function getMarketingDashboard(
               ELSE 0
             END
           ) AS completed,
+
+          SUM(
+            CASE
+              WHEN task_status =
+                'cancelled'
+              THEN 1
+              ELSE 0
+            END
+          ) AS cancelled,
 
           SUM(
             CASE
@@ -1740,6 +1818,10 @@ async function getMarketingDashboard(
         summary.total_tasks
       ),
 
+      pending: numberValue(
+        summary.pending
+      ),
+
       assigned: numberValue(
         summary.assigned
       ),
@@ -1762,6 +1844,10 @@ async function getMarketingDashboard(
 
       completed: numberValue(
         summary.completed
+      ),
+
+      cancelled: numberValue(
+        summary.cancelled
       ),
 
       overdue: numberValue(
@@ -2067,10 +2153,10 @@ async function getHeadDashboard() {
         {
           key: 'completed_cdm',
           label:
-            'Completed CDM Records',
+            'Confirmed CDM Orders',
 
           value:
-            cdm.completedRecords,
+            cdm.confirmedRecords,
         },
         {
           key:
@@ -2197,6 +2283,14 @@ async function getHeadDashboard() {
       fulfillment.summary
         .returned,
   },
+  {
+    status: 'cancelled',
+    label: 'Cancelled',
+
+    total:
+      fulfillment.summary
+        .cancelled,
+  },
 ],
 
       crmStatus: [
@@ -2239,6 +2333,14 @@ async function getHeadDashboard() {
       ],
 
       marketingStatus: [
+        {
+          status: 'pending',
+          label: 'Pending',
+
+          total:
+            marketing.summary
+              .pending,
+        },
         {
           status: 'assigned',
           label: 'Assigned',
@@ -2294,6 +2396,14 @@ async function getHeadDashboard() {
           total:
             marketing.summary
               .overdue,
+        },
+        {
+          status: 'cancelled',
+          label: 'Cancelled',
+
+          total:
+            marketing.summary
+              .cancelled,
         },
       ],
     },
@@ -2539,6 +2649,13 @@ exports.getDashboard = async (
           'You do not have access to the dashboard.',
       });
     }
+
+    dashboard = {
+      ...dashboard,
+      tasks: await getMyTasks(
+        req.user
+      ),
+    };
 
     return res.json({
       success: true,

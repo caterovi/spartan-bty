@@ -5,6 +5,7 @@ import {
 } from 'react';
 
 import api from '../api/axiosInstance';
+import Customer360Modal from '../components/Customer360Modal';
 import {
   colors,
   font,
@@ -85,6 +86,7 @@ function createEmptyStepForm() {
     customerFeedback: '',
     crmResponse: '',
     followUpAt: '',
+    nextFollowUpAt: '',
   };
 }
 
@@ -184,6 +186,72 @@ function isStepOverdue(step) {
   );
 }
 
+function getFollowUpReminder(crmCase) {
+  const status =
+    crmCase?.followUpStatus ||
+    'unscheduled';
+
+  if (status === 'unassigned') {
+    return {
+      label: 'Awaiting CRM assignment',
+      tone: 'warning',
+    };
+  }
+
+  if (status === 'follow_up_complete') {
+    return {
+      label: 'All four follow-ups complete',
+      tone: 'success',
+    };
+  }
+
+  if (status === 'complete') {
+    return {
+      label: 'Follow-up processing complete',
+      tone: 'success',
+    };
+  }
+
+  if (status === 'due_today') {
+    return {
+      label: `Due today · ${formatDate(
+        crmCase.nextFollowUpAt
+      )}`,
+      tone: 'warning',
+    };
+  }
+
+  if (status === 'overdue') {
+    const days = Number(
+      crmCase.overdueDays || 0
+    );
+
+    return {
+      label:
+        days > 0
+          ? `Overdue by ${days} day${
+              days === 1 ? '' : 's'
+            }`
+          : 'Follow-up overdue',
+      tone: 'danger',
+    };
+  }
+
+  if (status === 'upcoming') {
+    return {
+      label: `Next follow-up: ${formatDate(
+        crmCase.nextFollowUpAt
+      )}`,
+      tone: 'normal',
+    };
+  }
+
+  return {
+    label: 'No follow-up scheduled',
+    tone: 'muted',
+  };
+}
+
 function getCurrentUserId(user) {
   return Number(
     user?.id ||
@@ -218,6 +286,7 @@ export default function CRM() {
     selectedCase,
     setSelectedCase,
   ] = useState(null);
+  const [customer360Id, setCustomer360Id] = useState(null);
 
   const [
     assignedUserId,
@@ -330,6 +399,8 @@ export default function CRM() {
   };
 
   useEffect(() => {
+    // Initial remote-data synchronization.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, []);
 
@@ -394,9 +465,8 @@ export default function CRM() {
 
           const matchesDue =
             !dueOnly ||
-            crmCase.steps?.some(
-              isStepOverdue
-            );
+            crmCase.followUpStatus ===
+              'overdue';
 
           return (
             matchesSearch &&
@@ -468,6 +538,16 @@ export default function CRM() {
         followUpAt:
           toDateTimeLocal(
             step?.followUpAt
+          ),
+
+        nextFollowUpAt:
+          toDateTimeLocal(
+            crmCase.steps?.find(
+              (record) =>
+                Number(
+                  record.stepNumber
+                ) === stepNumber + 1
+            )?.followUpAt
           ),
       };
     }
@@ -742,6 +822,19 @@ export default function CRM() {
         return;
       }
 
+      if (
+        ['completed', 'skipped'].includes(
+          stepStatus
+        ) &&
+        stepNumber < 4 &&
+        !form.nextFollowUpAt
+      ) {
+        setError(
+          `Schedule the Step ${stepNumber + 1} follow-up before finishing Step ${stepNumber}.`
+        );
+        return;
+      }
+
       const actionLabel =
         stepStatus === 'completed'
           ? 'complete'
@@ -786,6 +879,10 @@ export default function CRM() {
               followUpAt:
                 form.followUpAt ||
                 null,
+
+              nextFollowUpAt:
+                form.nextFollowUpAt ||
+                null,
             }
           );
 
@@ -801,6 +898,50 @@ export default function CRM() {
           requestError.response?.data
             ?.message ||
             `Unable to update After-Sales Step ${stepNumber}.`
+        );
+      } finally {
+        setActionLoading('');
+      }
+    };
+
+  const handleScheduleFollowUp =
+    async (stepNumber) => {
+      if (!selectedCase) {
+        return;
+      }
+
+      const followUpAt =
+        stepForms[stepNumber]
+          ?.followUpAt;
+
+      if (!followUpAt) {
+        setError(
+          `Select the Step ${stepNumber} follow-up date and time.`
+        );
+        return;
+      }
+
+      setActionLoading(
+        `schedule-${stepNumber}`
+      );
+      setError('');
+      setSuccess('');
+
+      try {
+        const response = await api.patch(
+          `/crm/cases/${selectedCase.id}/schedule`,
+          { followUpAt }
+        );
+
+        setSuccess(response.data.message);
+        await refreshAfterAction(
+          selectedCase.id
+        );
+      } catch (requestError) {
+        setError(
+          requestError.response?.data
+            ?.message ||
+            'Unable to schedule the follow-up.'
         );
       } finally {
         setActionLoading('');
@@ -1154,8 +1295,7 @@ export default function CRM() {
             {crmUsers.length === 1
               ? ''
               : 's'}
-            . The interview mentioned four
-            CRM users.
+            .
           </div>
         )}
 
@@ -1369,6 +1509,14 @@ export default function CRM() {
                       styles.tableHeading
                     }
                   >
+                    Next Follow-up
+                  </th>
+
+                  <th
+                    style={
+                      styles.tableHeading
+                    }
+                  >
                     Customer
                   </th>
 
@@ -1451,6 +1599,37 @@ export default function CRM() {
                           styles.tableCell
                         }
                       >
+                        <span
+                          style={{
+                            ...styles.reminderBadge,
+                            ...(getFollowUpReminder(
+                              crmCase
+                            ).tone === 'danger'
+                              ? styles.reminderDanger
+                              : getFollowUpReminder(
+                                  crmCase
+                                ).tone === 'warning'
+                              ? styles.reminderWarning
+                              : getFollowUpReminder(
+                                  crmCase
+                                ).tone === 'success'
+                              ? styles.reminderSuccess
+                              : {}),
+                          }}
+                        >
+                          {
+                            getFollowUpReminder(
+                              crmCase
+                            ).label
+                          }
+                        </span>
+                      </td>
+
+                      <td
+                        style={
+                          styles.tableCell
+                        }
+                      >
                         <p
                           style={
                             styles.primaryText
@@ -1520,6 +1699,19 @@ export default function CRM() {
                           crmCase.currentStep
                         }{' '}
                         of 4
+
+                        {crmCase.workflow && (
+                          <p
+                            style={
+                              styles.secondaryText
+                            }
+                          >
+                            {
+                              crmCase.workflow
+                                .nextAction
+                            }
+                          </p>
+                        )}
                       </td>
 
                       <td
@@ -1679,6 +1871,15 @@ export default function CRM() {
   <strong>
     Step {selectedCase.currentStep} of 4
   </strong>
+
+  {selectedCase.workflow && (
+    <span style={styles.secondaryText}>
+      Next: {selectedCase.workflow.nextAction}
+      {' · '}
+      {selectedCase.workflow.nextResponsibleModule ||
+        'No module action'}
+    </span>
+  )}
 </div>
 
               <CaseStatusBadge
@@ -1686,6 +1887,46 @@ export default function CRM() {
                   selectedCase.caseStatus
                 }
               />
+            </div>
+
+            <div
+              style={{
+                ...styles.followUpBanner,
+                ...(getFollowUpReminder(
+                  selectedCase
+                ).tone === 'danger'
+                  ? styles.reminderDanger
+                  : getFollowUpReminder(
+                      selectedCase
+                    ).tone === 'warning'
+                  ? styles.reminderWarning
+                  : getFollowUpReminder(
+                      selectedCase
+                    ).tone === 'success'
+                  ? styles.reminderSuccess
+                  : {}),
+              }}
+            >
+              <strong>
+                Step {selectedCase.currentStep} of 4
+              </strong>
+              <span>
+                {
+                  getFollowUpReminder(
+                    selectedCase
+                  ).label
+                }
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+              <button
+                type="button"
+                onClick={() => setCustomer360Id(selectedCase.customer?.id)}
+                style={styles.secondaryButton}
+              >
+                View Customer 360
+              </button>
             </div>
 
             <div
@@ -2436,7 +2677,7 @@ export default function CRM() {
                         </Field>
                       </div>
 
-                      <Field label={`Step ${stepNumber} Follow-up Date`}>
+                      <Field label={`Scheduled Follow-up for Step ${stepNumber}`}>
                         <input
                           type="datetime-local"
                           value={
@@ -2471,6 +2712,83 @@ export default function CRM() {
                           }
                         />
                       </Field>
+
+                      {canProcessSelectedCase &&
+                        stepNumber ===
+                          Number(
+                            selectedCase.currentStep
+                          ) &&
+                        !terminal &&
+                        ![
+                          'resolved',
+                          'closed',
+                        ].includes(
+                          selectedCase.caseStatus
+                        ) && (
+                          <div style={styles.scheduleRow}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleScheduleFollowUp(
+                                  stepNumber
+                                )
+                              }
+                              disabled={Boolean(
+                                actionLoading
+                              )}
+                              style={
+                                styles.secondaryButton
+                              }
+                            >
+                              {actionLoading ===
+                              `schedule-${stepNumber}`
+                                ? 'Scheduling...'
+                                : `Save Step ${stepNumber} Schedule`}
+                            </button>
+                          </div>
+                        )}
+
+                      {stepNumber ===
+                        Number(
+                          selectedCase.currentStep
+                        ) &&
+                        stepNumber < 4 &&
+                        !terminal && (
+                          <Field
+                            label={`Next Follow-up Date (Step ${stepNumber + 1})`}
+                          >
+                            <input
+                              type="datetime-local"
+                              value={
+                                stepForms[
+                                  stepNumber
+                                ]
+                                  ?.nextFollowUpAt ||
+                                ''
+                              }
+                              onChange={(event) =>
+                                handleStepFieldChange(
+                                  stepNumber,
+                                  'nextFollowUpAt',
+                                  event.target.value
+                                )
+                              }
+                              disabled={
+                                !canProcessSelectedCase ||
+                                [
+                                  'resolved',
+                                  'closed',
+                                ].includes(
+                                  selectedCase.caseStatus
+                                )
+                              }
+                              style={styles.input}
+                            />
+                            <span style={styles.fieldHelp}>
+                              Required when completing or skipping this step. No interval is selected automatically.
+                            </span>
+                          </Field>
+                        )}
 
                       <div
                         style={
@@ -2987,6 +3305,13 @@ export default function CRM() {
           </section>
         </div>
       )}
+
+      {customer360Id && (
+        <Customer360Modal
+          customerId={customer360Id}
+          onClose={() => setCustomer360Id(null)}
+        />
+      )}
     </div>
   );
 }
@@ -3149,6 +3474,64 @@ function StepStatusBadge({
 }
 
 const styles = {
+  reminderBadge: {
+    display: 'inline-flex',
+    maxWidth: '190px',
+    padding: '6px 8px',
+    borderRadius: '8px',
+    background: colors.cream,
+    color: colors.mutedInk,
+    fontSize: '10px',
+    fontWeight: 700,
+    lineHeight: 1.4,
+  },
+
+  reminderDanger: {
+    background: '#fff0f2',
+    color: '#a33b51',
+    borderColor: '#e7aebb',
+  },
+
+  reminderWarning: {
+    background: '#fff8e8',
+    color: '#8a6417',
+    borderColor: '#ecd493',
+  },
+
+  reminderSuccess: {
+    background: '#e9f7ee',
+    color: '#287447',
+    borderColor: '#abd7ba',
+  },
+
+  followUpBanner: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '14px',
+    padding: '11px 13px',
+    border: `1px solid ${colors.border}`,
+    borderRadius: '10px',
+    background: colors.cream,
+    color: colors.ink,
+    fontSize: '12px',
+  },
+
+  scheduleRow: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '-2px',
+  },
+
+  fieldHelp: {
+    display: 'block',
+    marginTop: '5px',
+    color: colors.mutedInk,
+    fontSize: '10px',
+    lineHeight: 1.5,
+  },
+
   pageHeader: {
     display: 'flex',
     alignItems: 'center',

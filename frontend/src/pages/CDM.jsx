@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axiosInstance';
+import Customer360Modal from '../components/Customer360Modal';
+import WorkflowSummary from '../components/WorkflowSummary';
 import { colors, font } from '../styles/tokens';
 
 const statusLabels = {
@@ -49,6 +51,7 @@ export default function CDM() {
 
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [customer360Id, setCustomer360Id] = useState(null);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -94,6 +97,8 @@ export default function CDM() {
   };
 
   useEffect(() => {
+    // Initial remote-data synchronization.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadOrders();
   }, []);
 
@@ -608,6 +613,17 @@ export default function CDM() {
                         <StatusBadge
                           status={status}
                         />
+
+                        {order.workflow && (
+                          <div
+                            style={{
+                              ...styles.secondaryText,
+                              marginTop: '6px',
+                            }}
+                          >
+                            {order.workflow.nextAction}
+                          </div>
+                        )}
                       </td>
 
                       <td style={styles.tableCell}>
@@ -699,6 +715,20 @@ export default function CDM() {
                 style={styles.closeButton}
               >
                 ×
+              </button>
+            </div>
+
+            <WorkflowSummary
+              workflow={selectedOrder.workflow}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setCustomer360Id(selectedOrder.customer?.id)}
+                style={styles.secondaryButton}
+              >
+                View Customer 360
               </button>
             </div>
 
@@ -1047,6 +1077,13 @@ export default function CDM() {
             )}
           </section>
         </div>
+      )}
+
+      {customer360Id && (
+        <Customer360Modal
+          customerId={customer360Id}
+          onClose={() => setCustomer360Id(null)}
+        />
       )}
     </div>
   );

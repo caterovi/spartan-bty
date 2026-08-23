@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const {
+  deriveOrderWorkflow,
+} = require('../utils/orderWorkflow');
 
 const CDM_STATUSES = [
   'pending',
@@ -104,6 +107,46 @@ function formatOrder(row) {
 
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+
+    workflow: deriveOrderWorkflow({
+      orderStatus: row.order_status,
+      createdAt: row.created_at,
+      submittedAt: row.submitted_at,
+      confirmedAt:
+        row.cdm_confirmed_at ||
+        row.order_confirmed_at,
+      rejectedAt:
+        row.cdm_rejected_at ||
+        row.order_rejected_at,
+      waybillNumber:
+        row.waybill_number,
+      waybillLink: row.waybill_link,
+      sentToCustomerAt:
+        row.sent_to_customer_at,
+      fulfillmentStatus:
+        row.fulfillment_status,
+      fulfillmentCreatedAt:
+        row.fulfillment_created_at,
+      fulfillmentUpdatedAt:
+        row.fulfillment_updated_at,
+      packingStartedAt:
+        row.packing_started_at,
+      packedAt: row.packed_at,
+      readyForShipmentAt:
+        row.ready_for_shipment_at,
+      shippedOutAt:
+        row.shipped_out_at,
+      deliveredAt: row.delivered_at,
+      returnedAt: row.returned_at,
+      crmCaseId: row.crm_case_id,
+      crmCaseStatus:
+        row.crm_case_status,
+      crmCurrentStep:
+        row.crm_current_step,
+      crmHandledBy:
+        row.crm_handled_by,
+      crmCreatedAt: row.crm_created_at,
+    }),
   };
 }
 
@@ -223,6 +266,35 @@ exports.getOrders = async (req, res) => {
           handled_user.full_name
             AS handled_by_name,
 
+          MAX(fo.fulfillment_status)
+            AS fulfillment_status,
+          MAX(fo.created_at)
+            AS fulfillment_created_at,
+          MAX(fo.updated_at)
+            AS fulfillment_updated_at,
+          MAX(fo.packing_started_at)
+            AS packing_started_at,
+          MAX(fo.packed_at)
+            AS packed_at,
+          MAX(fo.ready_for_shipment_at)
+            AS ready_for_shipment_at,
+          MAX(fo.shipped_out_at)
+            AS shipped_out_at,
+          MAX(fo.delivered_at)
+            AS delivered_at,
+          MAX(fo.returned_at)
+            AS returned_at,
+
+          MAX(cc.id) AS crm_case_id,
+          MAX(cc.case_status)
+            AS crm_case_status,
+          MAX(cc.current_step)
+            AS crm_current_step,
+          MAX(cc.handled_by)
+            AS crm_handled_by,
+          MAX(cc.created_at)
+            AS crm_created_at,
+
           COUNT(oi.id)
             AS item_count,
 
@@ -246,6 +318,12 @@ exports.getOrders = async (req, res) => {
         LEFT JOIN users handled_user
           ON handled_user.id =
              cp.handled_by
+
+        LEFT JOIN fulfillment_orders fo
+          ON fo.order_id = o.id
+
+        LEFT JOIN crm_cases cc
+          ON cc.order_id = o.id
 
         LEFT JOIN order_items oi
           ON oi.order_id = o.id
@@ -388,6 +466,28 @@ exports.getOrderById = async (
             handled_user.full_name
               AS handled_by_name,
 
+            fo.fulfillment_status,
+            fo.created_at
+              AS fulfillment_created_at,
+            fo.updated_at
+              AS fulfillment_updated_at,
+            fo.packing_started_at,
+            fo.packed_at,
+            fo.ready_for_shipment_at,
+            fo.shipped_out_at,
+            fo.delivered_at,
+            fo.returned_at,
+
+            cc.id AS crm_case_id,
+            cc.case_status
+              AS crm_case_status,
+            cc.current_step
+              AS crm_current_step,
+            cc.handled_by
+              AS crm_handled_by,
+            cc.created_at
+              AS crm_created_at,
+
             0 AS item_count,
             0 AS total_units
 
@@ -406,6 +506,12 @@ exports.getOrderById = async (
           LEFT JOIN users handled_user
             ON handled_user.id =
                cp.handled_by
+
+          LEFT JOIN fulfillment_orders fo
+            ON fo.order_id = o.id
+
+          LEFT JOIN crm_cases cc
+            ON cc.order_id = o.id
 
           WHERE o.id = ?
             AND o.order_status IN (
@@ -966,6 +1072,8 @@ exports.markSentToCustomer = async (
   req,
   res
 ) => {
+  let connection;
+
   try {
     const orderId = Number(
       req.params.id
@@ -981,13 +1089,19 @@ exports.markSentToCustomer = async (
       });
     }
 
-    const [rows] = await pool.execute(
+    connection =
+      await pool.getConnection();
+
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute(
       `
         SELECT
           o.order_status,
           cp.id,
           cp.waybill_number,
-          cp.waybill_link
+          cp.waybill_link,
+          cp.sent_to_customer_at
 
         FROM orders o
 
@@ -995,12 +1109,15 @@ exports.markSentToCustomer = async (
           ON cp.order_id = o.id
 
         WHERE o.id = ?
-        LIMIT 1
+
+        FOR UPDATE
       `,
       [orderId]
     );
 
     if (rows.length === 0) {
+      await connection.rollback();
+
       return res.status(404).json({
         success: false,
         message: 'Order not found.',
@@ -1011,6 +1128,8 @@ exports.markSentToCustomer = async (
       rows[0].order_status !==
       'confirmed'
     ) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
         message:
@@ -1022,6 +1141,8 @@ exports.markSentToCustomer = async (
       !rows[0].waybill_number &&
       !rows[0].waybill_link
     ) {
+      await connection.rollback();
+
       return res.status(400).json({
         success: false,
         message:
@@ -1029,24 +1150,69 @@ exports.markSentToCustomer = async (
       });
     }
 
-    await pool.execute(
-      `
-        UPDATE cdm_order_processing
-        SET
-          handled_by = ?,
-          sent_to_customer_at = NOW()
-        WHERE order_id = ?
-      `,
-      [req.user.id, orderId]
-    );
+    if (!rows[0].sent_to_customer_at) {
+      await connection.execute(
+        `
+          UPDATE cdm_order_processing
+          SET
+            handled_by = ?,
+            sent_to_customer_at = NOW()
+          WHERE order_id = ?
+        `,
+        [req.user.id, orderId]
+      );
+    }
+
+    const [fulfillmentResult] =
+      await connection.execute(
+        `
+          INSERT INTO fulfillment_orders (
+            order_id,
+            fulfillment_status
+          )
+          VALUES (?, 'pending_packing')
+          ON DUPLICATE KEY UPDATE
+            id = LAST_INSERT_ID(id)
+        `,
+        [orderId]
+      );
+
+    const [sentRows] =
+      await connection.execute(
+        `
+          SELECT sent_to_customer_at
+          FROM cdm_order_processing
+          WHERE order_id = ?
+          LIMIT 1
+        `,
+        [orderId]
+      );
+
+    await connection.commit();
 
     return res.json({
       success: true,
       message:
-        'Waybill marked as sent to the customer.',
-      sentToCustomerAt: new Date(),
+        rows[0].sent_to_customer_at
+          ? 'Order was already forwarded to Fulfillment.'
+          : 'Waybill sent and order forwarded to Fulfillment.',
+      sentToCustomerAt:
+        sentRows[0].sent_to_customer_at,
+      fulfillmentOrderId:
+        fulfillmentResult.insertId,
     });
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(
+          'Send handoff rollback error:',
+          rollbackError
+        );
+      }
+    }
+
     console.error(
       'Mark sent error:',
       error
@@ -1057,5 +1223,9 @@ exports.markSentToCustomer = async (
       message:
         'Unable to update the sent status.',
     });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
   }
 };

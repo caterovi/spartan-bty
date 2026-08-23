@@ -56,12 +56,20 @@ const statusLabels = {
   pending_review: 'Pending Review',
 
   awaiting_waybill: 'Awaiting Waybill',
+  pending_packing: 'Pending Packing',
   ready_for_packing: 'Ready for Packing',
   packing: 'Packing',
   packed: 'Packed',
+  ready_for_shipment:
+    'Ready for Shipment',
   shipped_out: 'Shipped Out',
   delivered: 'Delivered',
   returned_to_sender: 'Returned to Sender',
+
+  checked: 'Checked',
+  distributed: 'Distributed',
+  adjustment_in: 'Adjustment In',
+  adjustment_out: 'Adjustment Out',
 
   received: 'Received',
   not_received: 'Not Received',
@@ -1231,6 +1239,22 @@ function CdmReport({
               ?.totalRecords || 0
           }
         />
+
+        <SummaryCard
+          label="PENDING"
+          value={
+            report.summary
+              ?.pendingRecords || 0
+          }
+        />
+
+        <SummaryCard
+          label="COMPLETED"
+          value={
+            report.summary
+              ?.completedRecords || 0
+          }
+        />
       </section>
 
       <ChartSection title="CDM Status Distribution">
@@ -1325,6 +1349,13 @@ function InventoryReport({
           label="STOCK OUT"
           value={
             summary.stockOut || 0
+          }
+        />
+
+        <SummaryCard
+          label="DISTRIBUTED"
+          value={
+            summary.distributed || 0
           }
         />
 
@@ -1680,6 +1711,25 @@ function CrmReport({
           warning={
             Number(
               summary.unassigned || 0
+            ) > 0
+          }
+        />
+
+        <SummaryCard
+          label="OPEN"
+          value={
+            summary.openCases || 0
+          }
+        />
+
+        <SummaryCard
+          label="OVERDUE"
+          value={
+            summary.overdueCases || 0
+          }
+          danger={
+            Number(
+              summary.overdueCases || 0
             ) > 0
           }
         />

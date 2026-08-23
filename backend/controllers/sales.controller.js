@@ -1,5 +1,8 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
+const {
+  deriveOrderWorkflow,
+} = require('../utils/orderWorkflow');
 
 const CREATE_STATUSES = [
   'draft',
@@ -16,6 +19,10 @@ const ORDER_STATUSES = [
 
 function cleanText(value) {
   return String(value || '').trim();
+}
+
+function normalizeContactNumber(value) {
+  return cleanText(value).replace(/[+ ()-]/g, '');
 }
 
 function getPhilippineDateCode() {
@@ -60,6 +67,42 @@ function isValidConversationLink(value) {
   } catch {
     return false;
   }
+}
+
+function getOrderWorkflow(row) {
+  return deriveOrderWorkflow({
+    orderStatus: row.order_status,
+    createdAt: row.created_at,
+    submittedAt: row.submitted_at,
+    confirmedAt: row.confirmed_at,
+    rejectedAt: row.rejected_at,
+    cancelledAt: row.cancelled_at,
+    waybillNumber:
+      row.workflow_waybill_number,
+    waybillLink:
+      row.workflow_waybill_link,
+    sentToCustomerAt:
+      row.sent_to_customer_at,
+    fulfillmentStatus:
+      row.fulfillment_status,
+    fulfillmentCreatedAt:
+      row.fulfillment_created_at,
+    fulfillmentUpdatedAt:
+      row.fulfillment_updated_at,
+    packingStartedAt:
+      row.packing_started_at,
+    packedAt: row.packed_at,
+    readyForShipmentAt:
+      row.ready_for_shipment_at,
+    shippedOutAt: row.shipped_out_at,
+    deliveredAt: row.delivered_at,
+    returnedAt: row.returned_at,
+    crmCaseId: row.crm_case_id,
+    crmCaseStatus: row.crm_case_status,
+    crmCurrentStep: row.crm_current_step,
+    crmHandledBy: row.crm_handled_by,
+    crmCreatedAt: row.crm_created_at,
+  });
 }
 
 // GET /api/sales/products
@@ -217,6 +260,42 @@ exports.getOrders = async (req, res) => {
 
           u.full_name AS encoded_by_name,
 
+          MAX(cp.waybill_number)
+            AS workflow_waybill_number,
+          MAX(cp.waybill_link)
+            AS workflow_waybill_link,
+          MAX(cp.sent_to_customer_at)
+            AS sent_to_customer_at,
+
+          MAX(fo.fulfillment_status)
+            AS fulfillment_status,
+          MAX(fo.created_at)
+            AS fulfillment_created_at,
+          MAX(fo.updated_at)
+            AS fulfillment_updated_at,
+          MAX(fo.packing_started_at)
+            AS packing_started_at,
+          MAX(fo.packed_at)
+            AS packed_at,
+          MAX(fo.ready_for_shipment_at)
+            AS ready_for_shipment_at,
+          MAX(fo.shipped_out_at)
+            AS shipped_out_at,
+          MAX(fo.delivered_at)
+            AS delivered_at,
+          MAX(fo.returned_at)
+            AS returned_at,
+
+          MAX(cc.id) AS crm_case_id,
+          MAX(cc.case_status)
+            AS crm_case_status,
+          MAX(cc.current_step)
+            AS crm_current_step,
+          MAX(cc.handled_by)
+            AS crm_handled_by,
+          MAX(cc.created_at)
+            AS crm_created_at,
+
           COUNT(oi.id) AS item_count,
           COALESCE(SUM(oi.quantity), 0) AS total_units
 
@@ -227,6 +306,15 @@ exports.getOrders = async (req, res) => {
 
         LEFT JOIN users u
           ON u.id = o.encoded_by
+
+        LEFT JOIN cdm_order_processing cp
+          ON cp.order_id = o.id
+
+        LEFT JOIN fulfillment_orders fo
+          ON fo.order_id = o.id
+
+        LEFT JOIN crm_cases cc
+          ON cc.order_id = o.id
 
         LEFT JOIN order_items oi
           ON oi.order_id = o.id
@@ -304,6 +392,7 @@ exports.getOrders = async (req, res) => {
         cancelledAt: order.cancelled_at,
         createdAt: order.created_at,
         updatedAt: order.updated_at,
+        workflow: getOrderWorkflow(order),
       })),
     });
   } catch (error) {
@@ -356,7 +445,35 @@ exports.getOrderById = async (req, res) => {
           c.contact_number,
           c.address,
 
-          u.full_name AS encoded_by_name
+          u.full_name AS encoded_by_name,
+
+          cp.waybill_number
+            AS workflow_waybill_number,
+          cp.waybill_link
+            AS workflow_waybill_link,
+          cp.sent_to_customer_at,
+
+          fo.fulfillment_status,
+          fo.created_at
+            AS fulfillment_created_at,
+          fo.updated_at
+            AS fulfillment_updated_at,
+          fo.packing_started_at,
+          fo.packed_at,
+          fo.ready_for_shipment_at,
+          fo.shipped_out_at,
+          fo.delivered_at,
+          fo.returned_at,
+
+          cc.id AS crm_case_id,
+          cc.case_status
+            AS crm_case_status,
+          cc.current_step
+            AS crm_current_step,
+          cc.handled_by
+            AS crm_handled_by,
+          cc.created_at
+            AS crm_created_at
 
         FROM orders o
 
@@ -365,6 +482,15 @@ exports.getOrderById = async (req, res) => {
 
         LEFT JOIN users u
           ON u.id = o.encoded_by
+
+        LEFT JOIN cdm_order_processing cp
+          ON cp.order_id = o.id
+
+        LEFT JOIN fulfillment_orders fo
+          ON fo.order_id = o.id
+
+        LEFT JOIN crm_cases cc
+          ON cc.order_id = o.id
 
         WHERE o.id = ?
         LIMIT 1
@@ -448,6 +574,7 @@ exports.getOrderById = async (req, res) => {
         cancelledAt: order.cancelled_at,
         createdAt: order.created_at,
         updatedAt: order.updated_at,
+        workflow: getOrderWorkflow(order),
 
         items: itemRows.map((item) => ({
           id: item.id,
@@ -621,6 +748,7 @@ exports.createOrder = async (req, res) => {
     await connection.beginTransaction();
 
     let finalCustomerId = customerId;
+    let customerReused = false;
 
     if (finalCustomerId) {
       const [customerRows] =
@@ -670,25 +798,94 @@ exports.createOrder = async (req, res) => {
         });
       }
 
-      const [customerResult] =
+      const normalizedContact =
+        normalizeContactNumber(contactNumber);
+
+      if (!normalizedContact) {
+        await connection.rollback();
+
+        return res.status(400).json({
+          success: false,
+          message: 'Enter a valid customer contact number.',
+        });
+      }
+
+      const [matchingCustomers] =
         await connection.execute(
           `
-            INSERT INTO customers (
+            SELECT
+              id,
               full_name,
               contact_number,
               address
-            )
-            VALUES (?, ?, ?)
+            FROM customers
+            WHERE REPLACE(
+              REPLACE(
+                REPLACE(
+                  REPLACE(
+                    REPLACE(contact_number, ' ', ''),
+                    '-',
+                    ''
+                  ),
+                  '(',
+                  ''
+                ),
+                ')',
+                ''
+              ),
+              '+',
+              ''
+            ) = ?
+            ORDER BY id ASC
+            LIMIT 2
+            FOR UPDATE
           `,
-          [
-            fullName,
-            contactNumber,
-            address,
-          ]
+          [normalizedContact]
         );
 
-      finalCustomerId =
-        customerResult.insertId;
+      if (matchingCustomers.length > 1) {
+        await connection.rollback();
+
+        return res.status(409).json({
+          success: false,
+          message:
+            'More than one customer uses this contact number. Select the correct existing customer instead.',
+          possibleCustomers: matchingCustomers.map(
+            (customer) => ({
+              id: customer.id,
+              fullName: customer.full_name,
+              contactNumber: customer.contact_number,
+              address: customer.address,
+            })
+          ),
+        });
+      }
+
+      if (matchingCustomers.length === 1) {
+        finalCustomerId = matchingCustomers[0].id;
+        customerReused = true;
+      }
+
+      if (!finalCustomerId) {
+        const [customerResult] =
+          await connection.execute(
+            `
+              INSERT INTO customers (
+                full_name,
+                contact_number,
+                address
+              )
+              VALUES (?, ?, ?)
+            `,
+            [
+              fullName,
+              contactNumber,
+              address,
+            ]
+          );
+
+        finalCustomerId = customerResult.insertId;
+      }
     }
 
     const placeholders = productIds
@@ -806,6 +1003,8 @@ exports.createOrder = async (req, res) => {
         totalAmount,
         orderStatus,
       },
+
+      customerReused,
     });
   } catch (error) {
     if (connection) {

@@ -5,6 +5,7 @@ import {
 } from 'react';
 
 import api from '../api/axiosInstance';
+import WorkflowSummary from '../components/WorkflowSummary';
 import {
   colors,
   font,
@@ -1201,6 +1202,17 @@ export default function Fulfillment() {
                             order.fulfillmentStatus
                           }
                         />
+
+                        {order.workflow && (
+                          <div
+                            style={{
+                              ...styles.secondaryText,
+                              marginTop: '6px',
+                            }}
+                          >
+                            {order.workflow.nextAction}
+                          </div>
+                        )}
                       </td>
 
                       <td
@@ -1304,21 +1316,9 @@ export default function Fulfillment() {
               </button>
             </div>
 
-            <div
-              style={
-                styles.statusBanner
-              }
-            >
-              <span>
-                Current status
-              </span>
-
-              <StatusBadge
-                status={
-                  selectedOrder.fulfillmentStatus
-                }
-              />
-            </div>
+            <WorkflowSummary
+              workflow={selectedOrder.workflow}
+            />
 
             <div
               style={

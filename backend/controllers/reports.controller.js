@@ -188,12 +188,25 @@ async function getInventorySnapshot() {
 
   const balanceColumn =
     pickColumn(columns, [
+      'current_quantity',
       'current_balance',
       'current_stock',
       'stock_quantity',
       'quantity',
       'balance',
     ]);
+
+  const statusColumn =
+    pickColumn(columns, [
+      'status',
+    ]);
+
+  const activeItemsWhere =
+    statusColumn
+      ? `WHERE ${quoteIdentifier(
+          statusColumn
+        )} = 'active'`
+      : '';
 
   const thresholdColumn =
     pickColumn(columns, [
@@ -208,6 +221,7 @@ async function getInventorySnapshot() {
       await pool.execute(`
         SELECT COUNT(*) AS total_items
         FROM inventory_items
+        ${activeItemsWhere}
       `);
 
     return {
@@ -265,6 +279,8 @@ async function getInventorySnapshot() {
         ) AS out_of_stock_items
 
       FROM inventory_items
+
+      ${activeItemsWhere}
     `);
 
   return {
@@ -308,6 +324,7 @@ exports.getOverview = async (
       salesRows,
       fulfillmentRows,
       crmRows,
+      crmFeedbackRows,
       marketingRows,
       cdmRows,
       inventory,
@@ -315,39 +332,51 @@ exports.getOverview = async (
       pool.execute(
         `
           SELECT
-            COUNT(*) AS total_orders,
+            (
+              SELECT COUNT(*)
+              FROM orders
+              WHERE date_encoded >= ?
+                AND date_encoded <
+                  DATE_ADD(
+                    ?,
+                    INTERVAL 1 DAY
+                  )
+            ) AS total_orders,
 
-            SUM(
-              CASE
-                WHEN order_status =
-                  'confirmed'
-                THEN 1
-                ELSE 0
-              END
+            (
+              SELECT COUNT(*)
+              FROM orders
+              WHERE order_status =
+                    'confirmed'
+                AND confirmed_at >= ?
+                AND confirmed_at <
+                  DATE_ADD(
+                    ?,
+                    INTERVAL 1 DAY
+                  )
             ) AS confirmed_orders,
 
-            COALESCE(
-              SUM(
-                CASE
-                  WHEN order_status =
-                    'confirmed'
-                  THEN total_amount
-                  ELSE 0
-                END
-              ),
-              0
-            ) AS confirmed_revenue
-
-          FROM orders
-
-          WHERE date_encoded >= ?
-            AND date_encoded <
-              DATE_ADD(
-                ?,
-                INTERVAL 1 DAY
+            (
+              SELECT COALESCE(
+                SUM(total_amount),
+                0
               )
+              FROM orders
+              WHERE order_status =
+                    'confirmed'
+                AND confirmed_at >= ?
+                AND confirmed_at <
+                  DATE_ADD(
+                    ?,
+                    INTERVAL 1 DAY
+                  )
+            ) AS confirmed_revenue
         `,
-        dateValues
+        [
+          ...dateValues,
+          ...dateValues,
+          ...dateValues,
+        ]
       ),
 
       pool.execute(
@@ -397,22 +426,32 @@ exports.getOverview = async (
                 THEN 1
                 ELSE 0
               END
-            ) AS closed_cases,
-
-            ROUND(
-              AVG(
-                cf.satisfaction_rating
-              ),
-              2
-            ) AS average_rating
+            ) AS closed_cases
 
           FROM crm_cases cc
 
-          LEFT JOIN crm_feedback cf
-            ON cf.crm_case_id = cc.id
-
           WHERE cc.created_at >= ?
             AND cc.created_at <
+              DATE_ADD(
+                ?,
+                INTERVAL 1 DAY
+              )
+        `,
+        dateValues
+      ),
+
+      pool.execute(
+        `
+          SELECT
+            ROUND(
+              AVG(satisfaction_rating),
+              2
+            ) AS average_rating
+
+          FROM crm_feedback
+
+          WHERE submitted_at >= ?
+            AND submitted_at <
               DATE_ADD(
                 ?,
                 INTERVAL 1 DAY
@@ -459,30 +498,34 @@ exports.getOverview = async (
         dateValues
       ),
 
-      tableExists(
-        'cdm_order_processing'
-      ).then(async (exists) => {
-        if (!exists) {
-          return [[{
-            total_records: 0,
-          }]];
-        }
+      pool.execute(
+        `
+          SELECT COUNT(*) AS total_records
 
-        return pool.execute(
-          `
-            SELECT
-              COUNT(*) AS total_records
-            FROM cdm_order_processing
-            WHERE created_at >= ?
-              AND created_at <
-                DATE_ADD(
-                  ?,
-                  INTERVAL 1 DAY
-                )
-          `,
-          dateValues
-        );
-      }),
+          FROM orders
+
+          WHERE order_status IN (
+            'for_confirmation',
+            'confirmed',
+            'rejected'
+          )
+
+            AND COALESCE(
+              submitted_at,
+              date_encoded
+            ) >= ?
+
+            AND COALESCE(
+              submitted_at,
+              date_encoded
+            ) <
+              DATE_ADD(
+                ?,
+                INTERVAL 1 DAY
+              )
+        `,
+        dateValues
+      ),
 
       getInventorySnapshot(),
     ]);
@@ -491,6 +534,8 @@ exports.getOverview = async (
     const fulfillment =
       fulfillmentRows[0][0];
     const crm = crmRows[0][0];
+    const crmFeedback =
+      crmFeedbackRows[0][0];
     const marketing =
       marketingRows[0][0];
     const cdm = cdmRows[0][0];
@@ -552,10 +597,11 @@ exports.getOverview = async (
           ),
 
           averageRating:
-            crm.average_rating === null
+            crmFeedback.average_rating ===
+              null
               ? null
               : Number(
-                  crm.average_rating
+                  crmFeedback.average_rating
                 ),
         },
 
@@ -625,13 +671,29 @@ exports.getSalesReport = async (
             ) AS total_order_value,
 
             COALESCE(
-              SUM(
-                CASE
-                  WHEN order_status =
+              (
+                SELECT SUM(
+                  confirmed_order
+                    .total_amount
+                )
+
+                FROM orders
+                  confirmed_order
+
+                WHERE
+                  confirmed_order
+                    .order_status =
                     'confirmed'
-                  THEN total_amount
-                  ELSE 0
-                END
+
+                  AND confirmed_order
+                    .confirmed_at >= ?
+
+                  AND confirmed_order
+                    .confirmed_at <
+                    DATE_ADD(
+                      ?,
+                      INTERVAL 1 DAY
+                    )
               ),
               0
             ) AS confirmed_revenue,
@@ -650,7 +712,10 @@ exports.getSalesReport = async (
                 INTERVAL 1 DAY
               )
         `,
-        dateValues
+        [
+          ...dateValues,
+          ...dateValues,
+        ]
       ),
 
       pool.execute(
@@ -677,36 +742,68 @@ exports.getSalesReport = async (
       pool.execute(
         `
           SELECT
-            DATE(date_encoded)
-              AS report_date,
+            daily.report_date,
 
-            COUNT(*) AS order_count,
+            SUM(daily.order_count)
+              AS order_count,
 
-            COALESCE(
-              SUM(
-                CASE
-                  WHEN order_status =
-                    'confirmed'
-                  THEN total_amount
-                  ELSE 0
-                END
-              ),
-              0
-            ) AS confirmed_revenue
+            SUM(daily.confirmed_revenue)
+              AS confirmed_revenue
 
-          FROM orders
+          FROM (
+            SELECT
+              DATE(date_encoded)
+                AS report_date,
 
-          WHERE date_encoded >= ?
-            AND date_encoded <
-              DATE_ADD(
-                ?,
-                INTERVAL 1 DAY
-              )
+              COUNT(*) AS order_count,
+              0 AS confirmed_revenue
 
-          GROUP BY DATE(date_encoded)
+            FROM orders
+
+            WHERE date_encoded >= ?
+              AND date_encoded <
+                DATE_ADD(
+                  ?,
+                  INTERVAL 1 DAY
+                )
+
+            GROUP BY DATE(date_encoded)
+
+            UNION ALL
+
+            SELECT
+              DATE(confirmed_at)
+                AS report_date,
+
+              0 AS order_count,
+
+              COALESCE(
+                SUM(total_amount),
+                0
+              ) AS confirmed_revenue
+
+            FROM orders
+
+            WHERE order_status =
+                  'confirmed'
+
+              AND confirmed_at >= ?
+              AND confirmed_at <
+                DATE_ADD(
+                  ?,
+                  INTERVAL 1 DAY
+                )
+
+            GROUP BY DATE(confirmed_at)
+          ) daily
+
+          GROUP BY daily.report_date
           ORDER BY report_date ASC
         `,
-        dateValues
+        [
+          ...dateValues,
+          ...dateValues,
+        ]
       ),
 
       pool.execute(
@@ -733,9 +830,9 @@ exports.getSalesReport = async (
           WHERE o.order_status =
               'confirmed'
 
-            AND o.date_encoded >= ?
+            AND o.confirmed_at >= ?
 
-            AND o.date_encoded <
+            AND o.confirmed_at <
               DATE_ADD(
                 ?,
                 INTERVAL 1 DAY
@@ -922,246 +1019,178 @@ exports.getCdmReport = async (
       });
     }
 
-    const exists =
-      await tableExists(
-        'cdm_order_processing'
-      );
+    const dateValues =
+      getDateParameters(range);
 
-    if (!exists) {
-      return res.json({
-        success: true,
+    const [
+      summaryRows,
+      statusRows,
+      recentRows,
+    ] = await Promise.all([
+      pool.execute(
+        `
+          SELECT
+            COUNT(*) AS total_records,
 
-        dateRange: {
-          startDate: range.startDate,
-          endDate: range.endDate,
-        },
+            SUM(
+              CASE
+                WHEN o.order_status =
+                  'for_confirmation'
+                THEN 1
+                ELSE 0
+              END
+            ) AS pending_records,
 
-        summary: {
-          totalRecords: 0,
-        },
+            SUM(
+              CASE
+                WHEN o.order_status IN (
+                  'confirmed',
+                  'rejected'
+                )
+                THEN 1
+                ELSE 0
+              END
+            ) AS completed_records
 
-        statusDistribution: [],
-        recentRecords: [],
-      });
-    }
+          FROM orders o
 
-    const columns =
-      await getTableColumns(
-        'cdm_order_processing'
-      );
-
-    const statusColumn =
-      pickColumn(columns, [
-        'processing_status',
-        'cdm_status',
-        'status',
-      ]);
-
-    const dateColumn =
-      pickColumn(columns, [
-        'created_at',
-        'date_processed',
-        'sent_to_customer_at',
-        'updated_at',
-      ]);
-
-    const orderColumn =
-      pickColumn(columns, [
-        'order_id',
-      ]);
-
-    const waybillColumn =
-      pickColumn(columns, [
-        'waybill_number',
-      ]);
-
-    const dateIdentifier =
-      dateColumn
-        ? quoteIdentifier(
-            dateColumn
+          WHERE o.order_status IN (
+            'for_confirmation',
+            'confirmed',
+            'rejected'
           )
-        : null;
 
-    const whereClause =
-      dateIdentifier
-        ? `
-          WHERE ${dateIdentifier} >= ?
-            AND ${dateIdentifier} <
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) >= ?
+
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) <
               DATE_ADD(
                 ?,
                 INTERVAL 1 DAY
               )
-        `
-        : '';
-
-    const values =
-      dateIdentifier
-        ? getDateParameters(range)
-        : [];
-
-    const [summaryRows] =
-      await pool.execute(
-        `
-          SELECT COUNT(*) AS total_records
-          FROM cdm_order_processing
-          ${whereClause}
         `,
-        values
-      );
+        dateValues
+      ),
 
-    let statusDistribution = [];
+      pool.execute(
+        `
+          SELECT
+            CASE
+              WHEN o.order_status =
+                'for_confirmation'
+              THEN 'pending'
 
-    if (statusColumn) {
-      const statusIdentifier =
-        quoteIdentifier(
-          statusColumn
-        );
+              ELSE o.order_status
+            END AS record_status,
 
-      const [statusRows] =
-        await pool.execute(
-          `
-            SELECT
-              ${statusIdentifier}
-                AS record_status,
+            COUNT(*) AS total
 
-              COUNT(*) AS total
+          FROM orders o
 
-            FROM cdm_order_processing
+          WHERE o.order_status IN (
+            'for_confirmation',
+            'confirmed',
+            'rejected'
+          )
 
-            ${whereClause}
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) >= ?
 
-            GROUP BY
-              ${statusIdentifier}
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) <
+              DATE_ADD(
+                ?,
+                INTERVAL 1 DAY
+              )
 
-            ORDER BY total DESC
-          `,
-          values
-        );
+          GROUP BY
+            CASE
+              WHEN o.order_status =
+                'for_confirmation'
+              THEN 'pending'
 
-      statusDistribution =
-        statusRows.map((row) => ({
-          status:
-            row.record_status ||
-            'unspecified',
+              ELSE o.order_status
+            END
 
-          total: numberValue(
-            row.total
-          ),
-        }));
-    }
+          ORDER BY total DESC
+        `,
+        dateValues
+      ),
 
-    let recentRecords = [];
+      pool.execute(
+        `
+          SELECT
+            o.id,
+            o.id AS order_id,
+            o.order_number,
 
-    if (orderColumn) {
-      const selectedFields = [
-        'cp.id',
-        `cp.${quoteIdentifier(
-          orderColumn
-        )} AS order_id`,
-      ];
+            c.full_name
+              AS customer_name,
 
-      if (statusColumn) {
-        selectedFields.push(
-          `cp.${quoteIdentifier(
-            statusColumn
-          )} AS record_status`
-        );
-      }
+            CASE
+              WHEN o.order_status =
+                'for_confirmation'
+              THEN 'pending'
 
-      if (waybillColumn) {
-        selectedFields.push(
-          `cp.${quoteIdentifier(
-            waybillColumn
-          )} AS waybill_number`
-        );
-      }
+              ELSE o.order_status
+            END AS record_status,
 
-      if (dateColumn) {
-        selectedFields.push(
-          `cp.${quoteIdentifier(
-            dateColumn
-          )} AS record_date`
-        );
-      }
+            cp.waybill_number,
 
-      const recentWhere =
-        dateColumn
-          ? `
-            WHERE
-              cp.${quoteIdentifier(
-                dateColumn
-              )} >= ?
+            COALESCE(
+              cp.sent_to_customer_at,
+              cp.confirmed_at,
+              cp.rejected_at,
+              o.submitted_at,
+              o.date_encoded
+            ) AS record_date
 
-              AND
-              cp.${quoteIdentifier(
-                dateColumn
-              )} <
-                DATE_ADD(
-                  ?,
-                  INTERVAL 1 DAY
-                )
-          `
-          : '';
+          FROM orders o
 
-      const [recentRows] =
-        await pool.execute(
-          `
-            SELECT
-              ${selectedFields.join(
-                ',\n'
-              )},
+          INNER JOIN customers c
+            ON c.id = o.customer_id
 
-              o.order_number,
+          LEFT JOIN cdm_order_processing cp
+            ON cp.order_id = o.id
 
-              c.full_name
-                AS customer_name
+          WHERE o.order_status IN (
+            'for_confirmation',
+            'confirmed',
+            'rejected'
+          )
 
-            FROM cdm_order_processing cp
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) >= ?
 
-            INNER JOIN orders o
-              ON o.id =
-                cp.${quoteIdentifier(
-                  orderColumn
-                )}
+            AND COALESCE(
+              o.submitted_at,
+              o.date_encoded
+            ) <
+              DATE_ADD(
+                ?,
+                INTERVAL 1 DAY
+              )
 
-            INNER JOIN customers c
-              ON c.id =
-                 o.customer_id
+          ORDER BY record_date DESC
+          LIMIT 50
+        `,
+        dateValues
+      ),
+    ]);
 
-            ${recentWhere}
-
-            ORDER BY cp.id DESC
-            LIMIT 50
-          `,
-          dateColumn
-            ? getDateParameters(range)
-            : []
-        );
-
-      recentRecords =
-        recentRows.map((row) => ({
-          id: row.id,
-          orderId: row.order_id,
-
-          orderNumber:
-            row.order_number,
-
-          customerName:
-            row.customer_name,
-
-          status:
-            row.record_status ||
-            null,
-
-          waybillNumber:
-            row.waybill_number ||
-            null,
-
-          recordDate:
-            row.record_date ||
-            null,
-        }));
-    }
+    const summary =
+      summaryRows[0][0];
 
     return res.json({
       success: true,
@@ -1173,12 +1202,39 @@ exports.getCdmReport = async (
 
       summary: {
         totalRecords: numberValue(
-          summaryRows[0].total_records
+          summary.total_records
+        ),
+
+        pendingRecords: numberValue(
+          summary.pending_records
+        ),
+
+        completedRecords: numberValue(
+          summary.completed_records
         ),
       },
 
-      statusDistribution,
-      recentRecords,
+      statusDistribution:
+        statusRows[0].map((row) => ({
+          status: row.record_status,
+          total: numberValue(
+            row.total
+          ),
+        })),
+
+      recentRecords:
+        recentRows[0].map((row) => ({
+          id: row.id,
+          orderId: row.order_id,
+          orderNumber: row.order_number,
+          customerName: row.customer_name,
+          status: row.record_status,
+
+          waybillNumber:
+            row.waybill_number || null,
+
+          recordDate: row.record_date,
+        })),
     });
   } catch (error) {
     console.error(
@@ -1230,6 +1286,7 @@ exports.getInventoryReport = async (
           outOfStockItems: 0,
           stockIn: 0,
           stockOut: 0,
+          distributed: 0,
         },
 
         categoryDistribution: [],
@@ -1259,12 +1316,25 @@ exports.getInventoryReport = async (
 
     const balanceColumn =
       pickColumn(columns, [
+        'current_quantity',
         'current_balance',
         'current_stock',
         'stock_quantity',
         'quantity',
         'balance',
       ]);
+
+    const statusColumn =
+      pickColumn(columns, [
+        'status',
+      ]);
+
+    const activeItemsWhere =
+      statusColumn
+        ? `WHERE ${quoteIdentifier(
+            statusColumn
+          )} = 'active'`
+        : '';
 
     const thresholdColumn =
       pickColumn(columns, [
@@ -1286,6 +1356,7 @@ exports.getInventoryReport = async (
 
     let stockIn = 0;
     let stockOut = 0;
+    let distributed = 0;
 
     const movementExists =
       await tableExists(
@@ -1376,6 +1447,7 @@ exports.getInventoryReport = async (
                         )
                       ) IN (
                         'stock_in',
+                        'adjustment_in',
                         'in',
                         'incoming',
                         'addition'
@@ -1400,6 +1472,7 @@ exports.getInventoryReport = async (
                         )
                       ) IN (
                         'stock_out',
+                        'adjustment_out',
                         'out',
                         'outgoing',
                         'deduction'
@@ -1411,7 +1484,26 @@ exports.getInventoryReport = async (
                     END
                   ),
                   0
-                ) AS stock_out
+                ) AS stock_out,
+
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN LOWER(
+                        REPLACE(
+                          ${typeIdentifier},
+                          ' ',
+                          '_'
+                        )
+                      ) = 'distributed'
+                      THEN ABS(
+                        ${quantityIdentifier}
+                      )
+                      ELSE 0
+                    END
+                  ),
+                  0
+                ) AS distributed
 
               FROM inventory_movements
 
@@ -1428,6 +1520,10 @@ exports.getInventoryReport = async (
 
         stockOut = numberValue(
           movementRows[0].stock_out
+        );
+
+        distributed = numberValue(
+          movementRows[0].distributed
         );
       }
     }
@@ -1464,6 +1560,8 @@ exports.getInventoryReport = async (
             } AS total_balance
 
           FROM inventory_items
+
+          ${activeItemsWhere}
 
           GROUP BY
             ${categoryIdentifier}
@@ -1538,6 +1636,8 @@ exports.getInventoryReport = async (
 
         FROM inventory_items
 
+        ${activeItemsWhere}
+
         ORDER BY
           ${
             balanceColumn
@@ -1561,15 +1661,22 @@ exports.getInventoryReport = async (
           'inventory_quality_checks'
         );
 
-      const resultColumn =
+      const checkedQuantityColumn =
         pickColumn(
           qualityColumns,
-          [
-            'quality_status',
-            'result',
-            'check_result',
-            'status',
-          ]
+          ['checked_quantity']
+        );
+
+      const approvedQuantityColumn =
+        pickColumn(
+          qualityColumns,
+          ['approved_quantity']
+        );
+
+      const rejectedQuantityColumn =
+        pickColumn(
+          qualityColumns,
+          ['rejected_quantity']
         );
 
       const qualityDateColumn =
@@ -1582,12 +1689,11 @@ exports.getInventoryReport = async (
           ]
         );
 
-      if (resultColumn) {
-        const resultIdentifier =
-          quoteIdentifier(
-            resultColumn
-          );
-
+      if (
+        checkedQuantityColumn &&
+        approvedQuantityColumn &&
+        rejectedQuantityColumn
+      ) {
         const qualityWhere =
           qualityDateColumn
             ? `
@@ -1611,35 +1717,58 @@ exports.getInventoryReport = async (
           await pool.execute(
             `
               SELECT
-                ${resultIdentifier}
-                  AS quality_result,
+                COALESCE(
+                  SUM(${quoteIdentifier(
+                    checkedQuantityColumn
+                  )}),
+                  0
+                ) AS checked_quantity,
 
-                COUNT(*) AS total
+                COALESCE(
+                  SUM(${quoteIdentifier(
+                    approvedQuantityColumn
+                  )}),
+                  0
+                ) AS approved_quantity,
+
+                COALESCE(
+                  SUM(${quoteIdentifier(
+                    rejectedQuantityColumn
+                  )}),
+                  0
+                ) AS rejected_quantity
 
               FROM inventory_quality_checks
 
               ${qualityWhere}
-
-              GROUP BY
-                ${resultIdentifier}
-
-              ORDER BY total DESC
             `,
             qualityDateColumn
               ? getDateParameters(range)
               : []
           );
 
-        qualityChecks =
-          qualityRows.map((row) => ({
-            result:
-              row.quality_result ||
-              'unspecified',
+        const quality = qualityRows[0];
 
+        qualityChecks = [
+          {
+            result: 'checked',
             total: numberValue(
-              row.total
+              quality.checked_quantity
             ),
-          }));
+          },
+          {
+            result: 'approved',
+            total: numberValue(
+              quality.approved_quantity
+            ),
+          },
+          {
+            result: 'rejected',
+            total: numberValue(
+              quality.rejected_quantity
+            ),
+          },
+        ];
       }
     }
 
@@ -1655,6 +1784,7 @@ exports.getInventoryReport = async (
         ...snapshot,
         stockIn,
         stockOut,
+        distributed,
       },
 
       categoryDistribution,
@@ -1857,6 +1987,12 @@ exports.getFulfillmentReport = async (
                 ?,
                 INTERVAL 1 DAY
               )
+
+            AND fulfillment_status IN (
+              'shipped_out',
+              'delivered',
+              'returned_to_sender'
+            )
 
           GROUP BY courier_name
           ORDER BY total_shipments DESC
@@ -2069,6 +2205,7 @@ exports.getCrmReport = async (
 
     const [
       summaryRows,
+      feedbackSummaryRows,
       statusRows,
       concernRows,
       stepRows,
@@ -2090,6 +2227,34 @@ exports.getCrmReport = async (
 
             SUM(
               CASE
+                WHEN case_status NOT IN (
+                  'resolved',
+                  'closed'
+                )
+                THEN 1
+                ELSE 0
+              END
+            ) AS open_cases,
+
+            SUM(
+              CASE
+                WHEN next_follow_up_at
+                      IS NOT NULL
+
+                  AND next_follow_up_at <=
+                      NOW()
+
+                  AND case_status NOT IN (
+                    'resolved',
+                    'closed'
+                  )
+                THEN 1
+                ELSE 0
+              END
+            ) AS overdue_cases,
+
+            SUM(
+              CASE
                 WHEN case_status =
                   'resolved'
                 THEN 1
@@ -2104,22 +2269,32 @@ exports.getCrmReport = async (
                 THEN 1
                 ELSE 0
               END
-            ) AS closed,
-
-            ROUND(
-              AVG(
-                cf.satisfaction_rating
-              ),
-              2
-            ) AS average_rating
+            ) AS closed
 
           FROM crm_cases cc
 
-          LEFT JOIN crm_feedback cf
-            ON cf.crm_case_id = cc.id
-
           WHERE cc.created_at >= ?
             AND cc.created_at <
+              DATE_ADD(
+                ?,
+                INTERVAL 1 DAY
+              )
+        `,
+        dateValues
+      ),
+
+      pool.execute(
+        `
+          SELECT
+            ROUND(
+              AVG(satisfaction_rating),
+              2
+            ) AS average_rating
+
+          FROM crm_feedback
+
+          WHERE submitted_at >= ?
+            AND submitted_at <
               DATE_ADD(
                 ?,
                 INTERVAL 1 DAY
@@ -2279,6 +2454,9 @@ exports.getCrmReport = async (
     const summary =
       summaryRows[0][0];
 
+    const feedbackSummary =
+      feedbackSummaryRows[0][0];
+
     return res.json({
       success: true,
 
@@ -2296,6 +2474,14 @@ exports.getCrmReport = async (
           summary.unassigned
         ),
 
+        openCases: numberValue(
+          summary.open_cases
+        ),
+
+        overdueCases: numberValue(
+          summary.overdue_cases
+        ),
+
         resolved: numberValue(
           summary.resolved
         ),
@@ -2305,11 +2491,13 @@ exports.getCrmReport = async (
         ),
 
         averageRating:
-          summary.average_rating ===
+          feedbackSummary
+            .average_rating ===
             null
             ? null
             : Number(
-                summary.average_rating
+                feedbackSummary
+                  .average_rating
               ),
       },
 

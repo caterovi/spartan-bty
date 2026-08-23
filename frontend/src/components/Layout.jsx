@@ -14,6 +14,7 @@ import {
 } from 'react-router-dom';
 
 import Sidebar from './Sidebar';
+import GlobalSearch from './GlobalSearch';
 
 import {
   colors,
@@ -134,6 +135,7 @@ export default function Layout() {
   ] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSidebarOpen(false);
   }, [location.pathname]);
 
@@ -214,6 +216,8 @@ export default function Layout() {
               </h2>
             </div>
           </div>
+
+          <GlobalSearch />
 
           <div className="layout-header-user">
             <span className="layout-status-dot" />

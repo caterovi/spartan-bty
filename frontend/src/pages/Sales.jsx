@@ -5,6 +5,8 @@ import {
 } from 'react';
 
 import api from '../api/axiosInstance';
+import Customer360Modal from '../components/Customer360Modal';
+import WorkflowSummary from '../components/WorkflowSummary';
 import { colors, font } from '../styles/tokens';
 
 const initialItem = {
@@ -89,6 +91,8 @@ export default function Sales() {
 
   const [selectedOrder, setSelectedOrder] =
     useState(null);
+  const [customer360Id, setCustomer360Id] =
+    useState(null);
 
   const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] =
@@ -106,6 +110,8 @@ export default function Sales() {
   const [form, setForm] = useState(initialForm);
   const [customerSearch, setCustomerSearch] =
     useState('');
+  const [customerSearchLoading, setCustomerSearchLoading] =
+    useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -119,7 +125,7 @@ export default function Sales() {
       ] = await Promise.all([
         api.get('/sales/orders'),
         api.get('/sales/products'),
-        api.get('/sales/customers'),
+        api.get('/customers/search'),
       ]);
 
       setOrders(
@@ -144,8 +150,39 @@ export default function Sales() {
   };
 
   useEffect(() => {
+    // Initial remote-data synchronization.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (
+      !showCreateModal ||
+      form.customerMode !== 'existing'
+    ) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      setCustomerSearchLoading(true);
+
+      try {
+        const response = await api.get('/customers/search', {
+          params: { q: customerSearch.trim() },
+        });
+        setCustomers(response.data.customers || []);
+      } catch (requestError) {
+        setError(
+          requestError.response?.data?.message ||
+            'Unable to search customers.'
+        );
+      } finally {
+        setCustomerSearchLoading(false);
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [customerSearch, form.customerMode, showCreateModal]);
 
   const filteredOrders = useMemo(() => {
     const keyword = search
@@ -198,6 +235,15 @@ export default function Sales() {
       )
     );
   }, [customers, customerSearch]);
+
+  const selectedCustomer = useMemo(
+    () =>
+      customers.find(
+        (customer) =>
+          Number(customer.id) === Number(form.customerId)
+      ) || null,
+    [customers, form.customerId]
+  );
 
   const totalSales = orders
     .filter(
@@ -272,6 +318,34 @@ export default function Sales() {
       ...current,
       [name]: value,
     }));
+  };
+
+  const handleCustomerSelection = (event) => {
+    const customer = customers.find(
+      (entry) => Number(entry.id) === Number(event.target.value)
+    );
+
+    setForm((current) => ({
+      ...current,
+      customerId: customer ? String(customer.id) : '',
+      fullName: customer?.fullName || '',
+      contactNumber: customer?.contactNumber || '',
+      address: customer?.address || '',
+    }));
+  };
+
+  const handleCustomerSearchChange = (event) => {
+    setCustomerSearch(event.target.value);
+
+    if (form.customerId) {
+      setForm((current) => ({
+        ...current,
+        customerId: '',
+        fullName: '',
+        contactNumber: '',
+        address: '',
+      }));
+    }
   };
 
   const changeCustomerMode = (mode) => {
@@ -501,6 +575,19 @@ export default function Sales() {
       closeCreateModal();
       await loadData();
     } catch (requestError) {
+      const possibleCustomers =
+        requestError.response?.data?.possibleCustomers;
+
+      if (Array.isArray(possibleCustomers) && possibleCustomers.length > 0) {
+        setCustomers(possibleCustomers);
+        setCustomerSearch(form.contactNumber.trim());
+        setForm((current) => ({
+          ...current,
+          customerMode: 'existing',
+          customerId: '',
+        }));
+      }
+
       setError(
         requestError.response?.data?.message ||
           'Unable to create the order.'
@@ -835,6 +922,19 @@ export default function Sales() {
                             order.orderStatus
                           }
                         />
+
+                        {order.workflow && (
+                          <div
+                            style={{
+                              ...styles.mutedText,
+                              marginTop: '6px',
+                            }}
+                          >
+                            {order.workflow.currentStage}
+                            {' · '}
+                            {order.workflow.nextAction}
+                          </div>
+                        )}
                       </td>
 
                       <td
@@ -1004,11 +1104,7 @@ export default function Sales() {
                     <input
                       type="search"
                       value={customerSearch}
-                      onChange={(event) =>
-                        setCustomerSearch(
-                          event.target.value
-                        )
-                      }
+                      onChange={handleCustomerSearchChange}
                       placeholder="Search name or contact number"
                       style={styles.input}
                     />
@@ -1021,9 +1117,7 @@ export default function Sales() {
                     <select
                       name="customerId"
                       value={form.customerId}
-                      onChange={
-                        handleFormChange
-                      }
+                      onChange={handleCustomerSelection}
                       style={styles.input}
                       required
                     >
@@ -1049,6 +1143,36 @@ export default function Sales() {
                       )}
                     </select>
                   </Field>
+
+                  {customerSearchLoading && (
+                    <p style={styles.fieldHint}>Searching customers…</p>
+                  )}
+
+                  {selectedCustomer && (
+                    <div style={styles.selectedCustomerCard}>
+                      <div style={styles.selectedCustomerInfo}>
+                        <strong>{form.fullName}</strong>
+                        <span>{form.contactNumber}</span>
+                        <span>{form.address}</span>
+                      </div>
+                      <div style={styles.customerSelectionActions}>
+                        <button
+                          type="button"
+                          onClick={() => setCustomer360Id(selectedCustomer.id)}
+                          style={styles.linkButton}
+                        >
+                          View Customer 360
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCustomerSelection({ target: { value: '' } })}
+                          style={styles.linkButton}
+                        >
+                          Clear selection
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={styles.formGrid}>
@@ -1417,6 +1541,22 @@ export default function Sales() {
               </button>
             </div>
 
+            <WorkflowSummary
+              workflow={selectedOrder.workflow}
+            />
+
+            <div style={styles.customerDetailAction}>
+              <button
+                type="button"
+                onClick={() =>
+                  setCustomer360Id(selectedOrder.customer?.id)
+                }
+                style={styles.secondaryButton}
+              >
+                View Customer 360
+              </button>
+            </div>
+
             <div style={styles.detailGrid}>
               <Detail
                 label="Customer"
@@ -1601,6 +1741,13 @@ export default function Sales() {
           </section>
         </div>
       )}
+
+      {customer360Id && (
+        <Customer360Modal
+          customerId={customer360Id}
+          onClose={() => setCustomer360Id(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1701,6 +1848,55 @@ function StatusBadge({ status }) {
 }
 
 const styles = {
+  selectedCustomerCard: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '14px',
+    padding: '13px',
+    borderRadius: '10px',
+    border: `1px solid ${colors.border}`,
+    background: colors.blush,
+  },
+
+  customerSelectionActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+
+  selectedCustomerInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    color: colors.ink,
+    fontSize: '12px',
+  },
+
+  linkButton: {
+    border: 0,
+    padding: '4px',
+    background: 'transparent',
+    color: colors.roseDeep,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+
+  fieldHint: {
+    gridColumn: '1 / -1',
+    margin: 0,
+    color: colors.mutedInk,
+    fontSize: '11px',
+  },
+
+  customerDetailAction: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '12px',
+  },
+
   pageHeader: {
     display: 'flex',
     alignItems: 'center',

@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const {
+  deriveOrderWorkflow,
+} = require('../utils/orderWorkflow');
 
 const FULFILLMENT_STATUSES = [
   'pending_packing',
@@ -111,36 +114,35 @@ function formatFulfillmentOrder(row) {
 
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+
+    workflow: deriveOrderWorkflow({
+      sentToCustomerAt:
+        row.sent_to_customer_at,
+      fulfillmentStatus:
+        row.fulfillment_status,
+      fulfillmentCreatedAt:
+        row.created_at,
+      fulfillmentUpdatedAt:
+        row.updated_at,
+      packingStartedAt:
+        row.packing_started_at,
+      packedAt: row.packed_at,
+      readyForShipmentAt:
+        row.ready_for_shipment_at,
+      shippedOutAt:
+        row.shipped_out_at,
+      deliveredAt: row.delivered_at,
+      returnedAt: row.returned_at,
+      crmCaseId: row.crm_case_id,
+      crmCaseStatus:
+        row.crm_case_status,
+      crmCurrentStep:
+        row.crm_current_step,
+      crmHandledBy:
+        row.crm_handled_by,
+      crmCreatedAt: row.crm_created_at,
+    }),
   };
-}
-
-async function ensureEligibleOrders(
-  connection = pool
-) {
-  await connection.execute(`
-    INSERT INTO fulfillment_orders (
-      order_id,
-      fulfillment_status
-    )
-
-    SELECT
-      o.id,
-      'pending_packing'
-
-    FROM orders o
-
-    INNER JOIN cdm_order_processing cp
-      ON cp.order_id = o.id
-
-    WHERE o.order_status = 'confirmed'
-      AND cp.confirmation_status =
-          'confirmed'
-      AND cp.sent_to_customer_at
-          IS NOT NULL
-
-    ON DUPLICATE KEY UPDATE
-      order_id = VALUES(order_id)
-  `);
 }
 
 async function addStatusHistory(
@@ -207,6 +209,61 @@ async function getLockedFulfillmentOrder(
   return rows[0] || null;
 }
 
+async function createCrmCaseForOrder(
+  connection,
+  orderId,
+  deliveryConfirmation
+) {
+  const [caseResult] =
+    await connection.execute(
+      `
+        INSERT INTO crm_cases (
+          order_id,
+          case_status,
+          current_step,
+          delivery_confirmation
+        )
+        VALUES (
+          ?,
+          'pending_follow_up',
+          1,
+          ?
+        )
+        ON DUPLICATE KEY UPDATE
+          id = LAST_INSERT_ID(id)
+      `,
+      [orderId, deliveryConfirmation]
+    );
+
+  const crmCaseId =
+    caseResult.insertId;
+
+  await connection.execute(
+    `
+      INSERT IGNORE INTO
+        crm_after_sales_steps (
+          crm_case_id,
+          step_number,
+          step_status,
+          handled_by
+        )
+      VALUES
+        (?, 1, 'not_started', NULL),
+        (?, 2, 'not_started', NULL),
+        (?, 3, 'not_started', NULL),
+        (?, 4, 'not_started', NULL)
+    `,
+    [
+      crmCaseId,
+      crmCaseId,
+      crmCaseId,
+      crmCaseId,
+    ]
+  );
+
+  return crmCaseId;
+}
+
 const fulfillmentOrderSelect = `
   SELECT
     fo.id,
@@ -244,6 +301,16 @@ const fulfillmentOrderSelect = `
     handler.full_name
       AS handled_by_name,
 
+    cc.id AS crm_case_id,
+    cc.case_status
+      AS crm_case_status,
+    cc.current_step
+      AS crm_current_step,
+    cc.handled_by
+      AS crm_handled_by,
+    cc.created_at
+      AS crm_created_at,
+
     COALESCE(
       order_summary.item_count,
       0
@@ -268,6 +335,9 @@ const fulfillmentOrderSelect = `
   LEFT JOIN users handler
     ON handler.id = fo.handled_by
 
+  LEFT JOIN crm_cases cc
+    ON cc.order_id = fo.order_id
+
   LEFT JOIN (
     SELECT
       order_id,
@@ -285,8 +355,6 @@ const fulfillmentOrderSelect = `
 // GET /api/fulfillment/summary
 exports.getSummary = async (req, res) => {
   try {
-    await ensureEligibleOrders();
-
     const [rows] = await pool.execute(`
       SELECT
         COUNT(*) AS total_orders,
@@ -413,8 +481,6 @@ exports.getSummary = async (req, res) => {
 // GET /api/fulfillment/orders
 exports.getOrders = async (req, res) => {
   try {
-    await ensureEligibleOrders();
-
     const search = cleanText(
       req.query.search
     );
@@ -639,8 +705,6 @@ exports.getOrderById = async (
           'Invalid fulfillment order.',
       });
     }
-
-    await ensureEligibleOrders();
 
     const [orderRows] =
       await pool.execute(
@@ -1882,6 +1946,13 @@ exports.markDelivered = async (
       notes
     );
 
+    const crmCaseId =
+      await createCrmCaseForOrder(
+        connection,
+        order.order_id,
+        'pending'
+      );
+
     await connection.commit();
 
     return res.json({
@@ -1889,6 +1960,7 @@ exports.markDelivered = async (
       message:
         'Order marked as delivered.',
       fulfillmentStatus: 'delivered',
+      crmCaseId,
     });
   } catch (error) {
     if (connection) {
@@ -2013,6 +2085,13 @@ exports.markReturnedToSender = async (
       returnReason
     );
 
+    const crmCaseId =
+      await createCrmCaseForOrder(
+        connection,
+        order.order_id,
+        'returned'
+      );
+
     await connection.commit();
 
     return res.json({
@@ -2021,6 +2100,7 @@ exports.markReturnedToSender = async (
         'Order marked as returned to sender.',
       fulfillmentStatus:
         'returned_to_sender',
+      crmCaseId,
     });
   } catch (error) {
     if (connection) {

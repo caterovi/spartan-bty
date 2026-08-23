@@ -55,6 +55,8 @@ app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/dashboard',require('./routes/dashboard.routes'));
 app.use('/api/sales',require('./routes/sales.routes'));
+app.use('/api/customers',require('./routes/customer.routes'));
+app.use('/api/search',require('./routes/search.routes'));
 app.use('/api/cdm',require('./routes/cdm.routes'));
 app.use('/api/supply-chain',require('./routes/supplychain.routes'));
 app.use('/api/fulfillment',require('./routes/fulfillment.routes'));

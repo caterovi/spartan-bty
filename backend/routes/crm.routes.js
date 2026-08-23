@@ -99,6 +99,12 @@ router.patch(
 );
 
 router.patch(
+  '/cases/:id/schedule',
+  requireCrmWriteAccess,
+  crmController.scheduleFollowUp
+);
+
+router.patch(
   '/cases/:id/steps/:stepNumber',
   requireCrmWriteAccess,
   crmController.updateAfterSalesStep

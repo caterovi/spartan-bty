@@ -42,6 +42,7 @@ import {
 } from 'recharts';
 
 import api from '../api/axiosInstance';
+import MyTasksPanel from '../components/MyTasksPanel';
 
 import {
   colors,
@@ -83,10 +84,14 @@ const statusLabels = {
 
   awaiting_waybill:
     'Awaiting Waybill',
+  pending_packing:
+    'Pending Packing',
   ready_for_packing:
     'Ready for Packing',
   packing: 'Packing',
   packed: 'Packed',
+  ready_for_shipment:
+    'Ready for Shipment',
   shipped_out: 'Shipped Out',
   delivered: 'Delivered',
   returned_to_sender:
@@ -98,6 +103,11 @@ const statusLabels = {
 
   stock_in: 'Stock In',
   stock_out: 'Stock Out',
+  distributed: 'Distributed',
+  adjustment_in:
+    'Adjustment In',
+  adjustment_out:
+    'Adjustment Out',
   in: 'Stock In',
   out: 'Stock Out',
 
@@ -408,7 +418,14 @@ function getAttentionItems(
       ),
     }))
     .filter(
-      (item) => item.value > 0
+      (item) =>
+        item.value > 0 ||
+        [
+          'outOfStockItems',
+          'lowStockItems',
+          'returnedOrders',
+          'unassignedCrmCases',
+        ].includes(item.key)
     );
 }
 
@@ -1044,40 +1061,6 @@ function HeadDashboard({
         />
       </section>
 
-      <SectionCard
-        eyebrow="OPERATIONAL ALERTS"
-        title="Items Requiring Attention"
-        description="Live records that may require immediate review or action."
-        icon={<BellRing />}
-      >
-        {attentionItems.length ===
-        0 ? (
-          <div className="dashboard-success-state">
-            <CheckCircle2
-              size={20}
-            />
-
-            <span>
-              No urgent operational
-              records currently require
-              attention.
-            </span>
-          </div>
-        ) : (
-          <div className="dashboard-alert-grid">
-            {attentionItems.map(
-              (item) => (
-                <AttentionCard
-                  key={item.key}
-                  item={item}
-                  navigate={navigate}
-                />
-              )
-            )}
-          </div>
-        )}
-      </SectionCard>
-
       <button
         type="button"
         className="dashboard-analytics-toggle"
@@ -1624,6 +1607,14 @@ function HeadDashboard({
         </section>
       )}
 
+      <MyTasksPanel
+        tasks={dashboard.tasks}
+        categorySummaries={
+          attentionItems
+        }
+        navigate={navigate}
+      />
+
       <SectionCard
         eyebrow="RECENT ACTIVITY"
         title="Latest Operational Updates"
@@ -1708,61 +1699,6 @@ function MetricCard({
   return (
     <article className={className}>
       {content}
-    </article>
-  );
-}
-
-function AttentionCard({
-  item,
-  navigate,
-}) {
-  const icons = {
-    danger: (
-      <AlertTriangle
-        size={19}
-      />
-    ),
-    warning: (
-      <Clock3 size={19} />
-    ),
-    info: (
-      <ShieldCheck
-        size={19}
-      />
-    ),
-  };
-
-  return (
-    <article
-      className={`dashboard-alert-card dashboard-alert-${item.severity}`}
-    >
-      <div className="dashboard-alert-heading">
-        <span className="dashboard-alert-icon">
-          {icons[item.severity]}
-        </span>
-
-        <span className="dashboard-alert-count">
-          {formatNumber(
-            item.value
-          )}
-        </span>
-      </div>
-
-      <div>
-        <h3>{item.label}</h3>
-
-        <p>{item.description}</p>
-      </div>
-
-      <button
-        type="button"
-        onClick={() =>
-          navigate(item.path)
-        }
-      >
-        Review Records
-        <ArrowRight size={16} />
-      </button>
     </article>
   );
 }
@@ -1977,6 +1913,11 @@ function SpecialistDashboard({
           </button>
         )}
       </section>
+
+      <MyTasksPanel
+        tasks={dashboard.tasks}
+        navigate={navigate}
+      />
 
       <section className="dashboard-metric-grid">
         {metrics.map(
@@ -2444,6 +2385,12 @@ function getSpecialistDistribution(
     case 'sales':
       return [
         {
+          label: 'Draft',
+          total: Number(
+            summary.draftOrders || 0
+          ),
+        },
+        {
           label:
             'For Confirmation',
           total: Number(
@@ -2462,6 +2409,13 @@ function getSpecialistDistribution(
           label: 'Rejected',
           total: Number(
             summary.rejectedOrders ||
+              0
+          ),
+        },
+        {
+          label: 'Cancelled',
+          total: Number(
+            summary.cancelledOrders ||
               0
           ),
         },
@@ -2523,6 +2477,20 @@ function getSpecialistDistribution(
           ),
         },
         {
+          label: 'Packed',
+          total: Number(
+            summary.packed || 0
+          ),
+        },
+        {
+          label:
+            'Ready for Shipment',
+          total: Number(
+            summary.readyForShipment ||
+              0
+          ),
+        },
+        {
           label: 'Shipped Out',
           total: Number(
             summary.shippedOut || 0
@@ -2538,6 +2506,12 @@ function getSpecialistDistribution(
           label: 'Returned',
           total: Number(
             summary.returned || 0
+          ),
+        },
+        {
+          label: 'Cancelled',
+          total: Number(
+            summary.cancelled || 0
           ),
         },
       ];
@@ -2574,6 +2548,12 @@ function getSpecialistDistribution(
     case 'marketing':
       return [
         {
+          label: 'Pending',
+          total: Number(
+            summary.pending || 0
+          ),
+        },
+        {
           label: 'Assigned',
           total: Number(
             summary.assigned || 0
@@ -2599,9 +2579,21 @@ function getSpecialistDistribution(
           ),
         },
         {
+          label: 'Approved',
+          total: Number(
+            summary.approved || 0
+          ),
+        },
+        {
           label: 'Completed',
           total: Number(
             summary.completed || 0
+          ),
+        },
+        {
+          label: 'Cancelled',
+          total: Number(
+            summary.cancelled || 0
           ),
         },
       ];
@@ -2814,6 +2806,11 @@ function SystemConfigurationDashboard({
           <ArrowRight size={17} />
         </button>
       </section>
+
+      <MyTasksPanel
+        tasks={dashboard.tasks}
+        navigate={navigate}
+      />
 
       <section className="dashboard-metric-grid">
         <MetricCard

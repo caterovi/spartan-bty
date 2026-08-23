@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const {
+  deriveOrderWorkflow,
+} = require('../utils/orderWorkflow');
 
 const CASE_STATUSES = [
   'pending_follow_up',
@@ -196,6 +199,14 @@ function formatCase(row) {
     nextFollowUpAt:
       row.next_follow_up_at,
 
+    followUpStatus:
+      row.follow_up_status ||
+      'unscheduled',
+
+    overdueDays: Number(
+      row.overdue_days || 0
+    ),
+
     firstContactedAt:
       row.first_contacted_at,
 
@@ -279,79 +290,19 @@ function formatCase(row) {
 
     updatedAt:
       row.updated_at,
+
+    workflow: deriveOrderWorkflow({
+      fulfillmentStatus:
+        row.fulfillment_status,
+      deliveredAt: row.delivered_at,
+      returnedAt: row.returned_at,
+      crmCaseId: row.id,
+      crmCaseStatus: row.case_status,
+      crmCurrentStep: row.current_step,
+      crmHandledBy: row.handled_by,
+      crmCreatedAt: row.created_at,
+    }),
   };
-}
-
-async function ensureEligibleCases(
-  connection = pool
-) {
-  await connection.execute(`
-    INSERT INTO crm_cases (
-      order_id,
-      case_status,
-      current_step,
-      delivery_confirmation
-    )
-
-    SELECT
-      fo.order_id,
-      'pending_follow_up',
-      1,
-
-      CASE
-        WHEN fo.fulfillment_status =
-          'returned_to_sender'
-        THEN 'returned'
-
-        ELSE 'pending'
-      END
-
-    FROM fulfillment_orders fo
-
-    WHERE fo.fulfillment_status IN (
-      'delivered',
-      'returned_to_sender'
-    )
-
-    ON DUPLICATE KEY UPDATE
-      delivery_confirmation =
-        CASE
-          WHEN VALUES(
-            delivery_confirmation
-          ) = 'returned'
-          THEN 'returned'
-
-          ELSE delivery_confirmation
-        END
-  `);
-
-  await connection.execute(`
-    INSERT IGNORE INTO
-      crm_after_sales_steps (
-        crm_case_id,
-        step_number,
-        step_status,
-        handled_by
-      )
-
-    SELECT
-      cc.id,
-      numbers.step_number,
-      'not_started',
-      cc.handled_by
-
-    FROM crm_cases cc
-
-    CROSS JOIN (
-      SELECT 1 AS step_number
-      UNION ALL
-      SELECT 2
-      UNION ALL
-      SELECT 3
-      UNION ALL
-      SELECT 4
-    ) numbers
-  `);
 }
 
 async function getLockedCase(
@@ -495,6 +446,48 @@ const crmCaseSelect = `
       step_summary.active_steps,
       0
     ) AS active_steps,
+
+    CASE
+      WHEN cc.case_status IN (
+        'resolved',
+        'closed'
+      )
+      THEN 'complete'
+
+      WHEN cc.handled_by IS NULL
+      THEN 'unassigned'
+
+      WHEN COALESCE(
+        step_summary.completed_steps,
+        0
+      ) >= 4
+      THEN 'follow_up_complete'
+
+      WHEN cc.next_follow_up_at IS NULL
+      THEN 'unscheduled'
+
+      WHEN cc.next_follow_up_at < NOW()
+      THEN 'overdue'
+
+      WHEN DATE(
+        cc.next_follow_up_at
+      ) = CURRENT_DATE()
+      THEN 'due_today'
+
+      ELSE 'upcoming'
+    END AS follow_up_status,
+
+    CASE
+      WHEN cc.next_follow_up_at < NOW()
+      THEN GREATEST(
+        DATEDIFF(
+          CURRENT_DATE(),
+          DATE(cc.next_follow_up_at)
+        ),
+        0
+      )
+      ELSE 0
+    END AS overdue_days,
 
     cf.satisfaction_rating,
     cf.feedback,
@@ -641,8 +634,6 @@ exports.getSummary = async (
   res
 ) => {
   try {
-    await ensureEligibleCases();
-
     const [rows] = await pool.execute(`
       SELECT
         COUNT(*) AS total_cases,
@@ -854,8 +845,6 @@ exports.getCases = async (
   res
 ) => {
   try {
-    await ensureEligibleCases();
-
     const search = cleanText(
       req.query.search
     );
@@ -1102,8 +1091,6 @@ exports.getCaseById = async (
           'Invalid CRM case.',
       });
     }
-
-    await ensureEligibleCases();
 
     const [caseRows] =
       await pool.execute(
@@ -1696,6 +1683,180 @@ exports.updateConcern = async (
   }
 };
 
+// PATCH /api/crm/cases/:id/schedule
+exports.scheduleFollowUp = async (
+  req,
+  res
+) => {
+  let connection;
+
+  try {
+    const caseId = parsePositiveInteger(
+      req.params.id
+    );
+    const parsedFollowUp =
+      parseOptionalDateTime(
+        req.body.followUpAt
+      );
+
+    if (!caseId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid CRM case.',
+      });
+    }
+
+    if (
+      !parsedFollowUp.valid ||
+      !parsedFollowUp.value
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Select a valid follow-up date and time.',
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const crmCase = await getLockedCase(
+      connection,
+      caseId
+    );
+
+    if (!crmCase) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'CRM case not found.',
+      });
+    }
+
+    const assignmentCheck = requireAssignedUser(
+      crmCase,
+      req.user.id
+    );
+
+    if (!assignmentCheck.allowed) {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: assignmentCheck.message,
+      });
+    }
+
+    if (
+      ['resolved', 'closed'].includes(
+        crmCase.case_status
+      )
+    ) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          'A resolved or closed case cannot be scheduled.',
+      });
+    }
+
+    const [stepRows] =
+      await connection.execute(
+        `
+          SELECT id, step_number
+          FROM crm_after_sales_steps
+          WHERE crm_case_id = ?
+            AND step_status NOT IN (
+              'completed',
+              'skipped'
+            )
+          ORDER BY step_number ASC
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [caseId]
+      );
+
+    if (stepRows.length === 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message:
+          'All four follow-up steps are complete. No additional follow-up can be scheduled.',
+      });
+    }
+
+    const currentStep = Number(
+      stepRows[0].step_number
+    );
+
+    await connection.execute(
+      `
+        UPDATE crm_after_sales_steps
+        SET
+          follow_up_at = ?,
+          handled_by = ?
+        WHERE id = ?
+      `,
+      [
+        parsedFollowUp.value,
+        req.user.id,
+        stepRows[0].id,
+      ]
+    );
+
+    await connection.execute(
+      `
+        UPDATE crm_cases
+        SET
+          current_step = ?,
+          next_follow_up_at = ?
+        WHERE id = ?
+      `,
+      [
+        currentStep,
+        parsedFollowUp.value,
+        caseId,
+      ]
+    );
+
+    await connection.commit();
+
+    return res.json({
+      success: true,
+      message:
+        `Step ${currentStep} follow-up scheduled successfully.`,
+      currentStep,
+      nextFollowUpAt: parsedFollowUp.value,
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(
+          'CRM schedule rollback error:',
+          rollbackError
+        );
+      }
+    }
+
+    console.error(
+      'Schedule CRM follow-up error:',
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        'Unable to schedule the CRM follow-up.',
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+};
+
 // PATCH /api/crm/cases/:id/steps/:stepNumber
 exports.updateAfterSalesStep = async (
   req,
@@ -1734,6 +1895,11 @@ exports.updateAfterSalesStep = async (
         req.body.followUpAt
       );
 
+    const parsedNextFollowUp =
+      parseOptionalDateTime(
+        req.body.nextFollowUpAt
+      );
+
     if (!caseId || !stepNumber) {
       return res.status(400).json({
         success: false,
@@ -1761,6 +1927,42 @@ exports.updateAfterSalesStep = async (
         success: false,
         message:
           'Enter a valid follow-up date and time.',
+      });
+    }
+
+    if (!parsedNextFollowUp.valid) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Enter a valid next follow-up date and time.',
+      });
+    }
+
+    const finishesStep = [
+      'completed',
+      'skipped',
+    ].includes(stepStatus);
+
+    if (
+      finishesStep &&
+      stepNumber < 4 &&
+      !parsedNextFollowUp.value
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          `Schedule the Step ${stepNumber + 1} follow-up before completing or skipping Step ${stepNumber}.`,
+      });
+    }
+
+    if (
+      stepNumber === 4 &&
+      parsedNextFollowUp.value
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'A follow-up cannot be scheduled beyond Step 4.',
       });
     }
 
@@ -2011,11 +2213,36 @@ exports.updateAfterSalesStep = async (
               .step_number
           );
 
-    const nextFollowUpAt =
+    let nextFollowUpAt =
       allStepsCompleted
         ? null
         : nextStepRows[0]
             .follow_up_at;
+
+    if (
+      !allStepsCompleted &&
+      finishesStep
+    ) {
+      nextFollowUpAt =
+        parsedNextFollowUp.value;
+
+      await connection.execute(
+        `
+          UPDATE crm_after_sales_steps
+          SET
+            follow_up_at = ?,
+            handled_by = ?
+          WHERE crm_case_id = ?
+            AND step_number = ?
+        `,
+        [
+          nextFollowUpAt,
+          req.user.id,
+          caseId,
+          newCurrentStep,
+        ]
+      );
+    }
 
     await connection.execute(
       `
@@ -2063,6 +2290,8 @@ exports.updateAfterSalesStep = async (
         newCurrentStep,
 
       allStepsCompleted,
+
+      nextFollowUpAt,
     });
   } catch (error) {
     if (connection) {
