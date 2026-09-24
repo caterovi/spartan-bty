@@ -10,89 +10,66 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireSupplyChainReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead =
-    req.user?.role === 'head';
-
-  const isSupplyChainSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode ===
-      'supply_chain';
-
-  if (
-    !isHead &&
-    !isSupplyChainSpecialist
-  ) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'You do not have access to the Supply Chain module.',
-    });
-  }
-
-  next();
-}
-
-function requireSupplyChainWriteAccess(
-  req,
-  res,
-  next
-) {
-  const isSupplyChainSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode ===
-      'supply_chain';
-
-  if (!isSupplyChainSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only Supply Chain Specialists can update inventory records.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/summary',
-  requireSupplyChainReadAccess,
+  requireDepartmentRead(
+    'supply_chain',
+    'You do not have access to the Supply Chain module.',
+  ),
   supplyChainController.getSummary
 );
 
 router.get(
   '/items',
-  requireSupplyChainReadAccess,
+  requireDepartmentRead(
+    'supply_chain',
+    'You do not have access to the Supply Chain module.',
+  ),
   supplyChainController.getItems
 );
 
 router.get(
   '/items/:id',
-  requireSupplyChainReadAccess,
+  requireDepartmentRead(
+    'supply_chain',
+    'You do not have access to the Supply Chain module.',
+  ),
   supplyChainController.getItemById
 );
 
 router.post(
   '/items/:id/movements',
-  requireSupplyChainWriteAccess,
+  requireDepartmentWrite(
+    'supply_chain',
+    'Only Supply Chain Specialists can update inventory records.',
+  ),
   supplyChainController.recordMovement
 );
 
 router.post(
   '/items/:id/quality-checks',
-  requireSupplyChainWriteAccess,
+  requireDepartmentWrite(
+    'supply_chain',
+    'Only Supply Chain Specialists can update inventory records.',
+  ),
   supplyChainController.recordQualityCheck
 );
 
 router.patch(
   '/items/:id/settings',
-  requireSupplyChainWriteAccess,
+  requireDepartmentWrite(
+    'supply_chain',
+    'Only Supply Chain Specialists can update inventory records.',
+  ),
   supplyChainController.updateItemSettings
 );
 

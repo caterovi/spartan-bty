@@ -10,84 +10,66 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireCdmReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead =
-    req.user?.role === 'head';
-
-  const isCdmSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode === 'cdm';
-
-  if (!isHead && !isCdmSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'You do not have access to the Customer Data Management module.',
-    });
-  }
-
-  next();
-}
-
-function requireCdmWriteAccess(
-  req,
-  res,
-  next
-) {
-  const isCdmSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode === 'cdm';
-
-  if (!isCdmSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only Customer Data Management Specialists can process orders.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/orders',
-  requireCdmReadAccess,
+  requireDepartmentRead(
+    'cdm',
+    'You do not have access to the Customer Data Management module.',
+  ),
   cdmController.getOrders
 );
 
 router.get(
   '/orders/:id',
-  requireCdmReadAccess,
+  requireDepartmentRead(
+    'cdm',
+    'You do not have access to the Customer Data Management module.',
+  ),
   cdmController.getOrderById
 );
 
 router.patch(
   '/orders/:id/confirm',
-  requireCdmWriteAccess,
+  requireDepartmentWrite(
+    'cdm',
+    'Only Customer Data Management Specialists can process orders.',
+  ),
   cdmController.confirmOrder
 );
 
 router.patch(
   '/orders/:id/reject',
-  requireCdmWriteAccess,
+  requireDepartmentWrite(
+    'cdm',
+    'Only Customer Data Management Specialists can process orders.',
+  ),
   cdmController.rejectOrder
 );
 
 router.patch(
   '/orders/:id/waybill',
-  requireCdmWriteAccess,
+  requireDepartmentWrite(
+    'cdm',
+    'Only Customer Data Management Specialists can process orders.',
+  ),
   cdmController.saveWaybill
 );
 
 router.patch(
   '/orders/:id/send',
-  requireCdmWriteAccess,
+  requireDepartmentWrite(
+    'cdm',
+    'Only Customer Data Management Specialists can process orders.',
+  ),
   cdmController.markSentToCustomer
 );
 

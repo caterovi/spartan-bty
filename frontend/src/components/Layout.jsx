@@ -203,7 +203,7 @@ export default function Layout() {
               className="mobile-menu-button"
               aria-label="Open navigation"
             >
-              <Menu size={21} />
+              <Menu size={20} />
             </button>
 
             <div>
@@ -300,6 +300,15 @@ const layoutStyles = `
     box-sizing: border-box;
   }
 
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid ${colors.rose};
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
   .layout-app {
     display: flex;
     min-height: 100vh;
@@ -307,42 +316,43 @@ const layoutStyles = `
     font-family: ${font.body};
   }
 
+  /* ================= SIDEBAR ================= */
+
   .app-sidebar {
     position: sticky;
     top: 0;
     z-index: 50;
     display: flex;
     flex-direction: column;
-    width: 280px;
-    min-width: 280px;
+    width: 272px;
+    min-width: 272px;
     height: 100vh;
-    padding: 23px 18px;
-    background: ${colors.ink};
-    color: #ffffff;
+    padding: 20px 16px;
+    background: ${colors.blush};
+    color: ${colors.mutedInk};
+    border-right: 1px solid ${colors.border};
   }
 
   .sidebar-brand {
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 64px;
-    padding: 0 7px 19px;
-    border-bottom:
-      1px solid
-      rgba(255, 255, 255, 0.1);
+    min-height: 58px;
+    padding: 0 6px 18px;
+    border-bottom: 1px solid ${colors.border};
   }
 
   .sidebar-logo {
     display: grid;
     place-items: center;
-    width: 41px;
-    height: 41px;
-    min-width: 41px;
-    border-radius: 12px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 10px;
     background: ${colors.rose};
     color: #ffffff;
     font-family: ${font.display};
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 600;
   }
 
@@ -353,15 +363,19 @@ const layoutStyles = `
 
   .sidebar-brand-text h1 {
     margin: 0;
+    color: ${colors.ink};
+    font-family: ${font.display};
     font-size: 14px;
-    letter-spacing: 1.2px;
+    font-weight: 600;
+    letter-spacing: 1.1px;
   }
 
   .sidebar-brand-text p {
     margin: 3px 0 0;
-    color:
-      rgba(255, 255, 255, 0.54);
+    color: ${colors.roseDeep};
     font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
     line-height: 1.35;
   }
 
@@ -370,23 +384,28 @@ const layoutStyles = `
     place-items: center;
     padding: 5px;
     border: none;
+    border-radius: 6px;
     background: transparent;
-    color: #ffffff;
+    color: ${colors.ink};
     cursor: pointer;
+  }
+
+  .sidebar-close-button:hover {
+    background: ${colors.roseTint};
   }
 
   .sidebar-navigation {
     flex: 1;
     overflow-y: auto;
-    padding: 9px 2px 18px;
+    padding: 8px 2px 16px;
     scrollbar-width: thin;
   }
 
   .sidebar-section-label {
     margin: 18px 11px 8px;
-    color:
-      rgba(255, 255, 255, 0.36);
-    font-size: 8px;
+    color: ${colors.mutedInk};
+    opacity: 0.72;
+    font-size: 8.5px;
     font-weight: 700;
     letter-spacing: 1.35px;
   }
@@ -399,22 +418,18 @@ const layoutStyles = `
     margin-bottom: 4px;
     padding: 9px 11px;
     border-radius: 9px;
-    color:
-      rgba(255, 255, 255, 0.72);
-    font-size: 12px;
+    color: ${colors.mutedInk};
+    font-size: 12.5px;
     line-height: 1.35;
     text-decoration: none;
     transition:
       background 150ms ease,
-      color 150ms ease,
-      transform 150ms ease;
+      color 150ms ease;
   }
 
   .sidebar-link:hover {
-    background:
-      rgba(255, 255, 255, 0.08);
-    color: #ffffff;
-    transform: translateX(2px);
+    background: ${colors.roseTint};
+    color: ${colors.roseDeep};
   }
 
   .sidebar-link-active {
@@ -425,6 +440,7 @@ const layoutStyles = `
 
   .sidebar-link-active:hover {
     background: ${colors.rose};
+    color: #ffffff;
   }
 
   .sidebar-account {
@@ -432,9 +448,7 @@ const layoutStyles = `
     align-items: center;
     gap: 10px;
     padding: 17px 4px 0;
-    border-top:
-      1px solid
-      rgba(255, 255, 255, 0.1);
+    border-top: 1px solid ${colors.border};
   }
 
   .sidebar-avatar {
@@ -458,6 +472,7 @@ const layoutStyles = `
   .sidebar-account-name {
     overflow: hidden;
     margin: 0;
+    color: ${colors.ink};
     font-size: 11px;
     font-weight: 600;
     text-overflow: ellipsis;
@@ -468,16 +483,14 @@ const layoutStyles = `
   .sidebar-account-department {
     overflow: hidden;
     margin: 3px 0 0;
-    color:
-      rgba(255, 255, 255, 0.48);
+    color: ${colors.mutedInk};
     font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .sidebar-account-department {
-    color:
-      rgba(255, 255, 255, 0.66);
+    color: ${colors.roseDeep};
   }
 
   .sidebar-logout-button {
@@ -487,20 +500,20 @@ const layoutStyles = `
     border: none;
     border-radius: 8px;
     background: transparent;
-    color:
-      rgba(255, 255, 255, 0.72);
+    color: ${colors.mutedInk};
     cursor: pointer;
   }
 
   .sidebar-logout-button:hover {
-    background:
-      rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: ${colors.roseTint};
+    color: ${colors.roseDeep};
   }
 
   .sidebar-overlay {
     display: none;
   }
+
+  /* ================= HEADER ================= */
 
   .layout-main-area {
     flex: 1;
@@ -513,16 +526,12 @@ const layoutStyles = `
     z-index: 30;
     display: flex;
     align-items: center;
-    justify-content:
-      space-between;
-    min-height: 82px;
+    justify-content: space-between;
+    min-height: 78px;
     gap: 20px;
     padding: 15px 30px;
-    border-bottom:
-      1px solid
-      ${colors.border};
-    background:
-      rgba(255, 255, 255, 0.96);
+    border-bottom: 1px solid ${colors.border};
+    background: rgba(255, 250, 247, 0.96);
     backdrop-filter: blur(10px);
   }
 
@@ -542,6 +551,11 @@ const layoutStyles = `
     background: #ffffff;
     color: ${colors.ink};
     cursor: pointer;
+    transition: background 150ms ease;
+  }
+
+  .mobile-menu-button:hover {
+    background: ${colors.roseTint};
   }
 
   .layout-header-eyebrow {
@@ -557,7 +571,7 @@ const layoutStyles = `
     margin: 4px 0 0;
     color: ${colors.ink};
     font-family: ${font.display};
-    font-size: 23px;
+    font-size: 22px;
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -575,7 +589,7 @@ const layoutStyles = `
     height: 8px;
     min-width: 8px;
     border-radius: 50%;
-    background: #44a46f;
+    background: ${colors.success};
   }
 
   .layout-header-user-name {
@@ -600,8 +614,10 @@ const layoutStyles = `
   }
 
   .layout-content {
-    padding: 30px;
+    padding: 28px 30px;
   }
+
+  /* ================= LOGOUT MODAL ================= */
 
   .logout-modal-overlay {
     position: fixed;
@@ -610,8 +626,7 @@ const layoutStyles = `
     display: grid;
     place-items: center;
     padding: 20px;
-    background:
-      rgba(28, 22, 24, 0.55);
+    background: rgba(43, 36, 32, 0.5);
   }
 
   .logout-modal {
@@ -619,18 +634,16 @@ const layoutStyles = `
     max-width: 390px;
     padding: 25px;
     border: 1px solid ${colors.border};
-    border-radius: 15px;
+    border-radius: 14px;
     background: #ffffff;
-    box-shadow:
-      0 24px 70px
-      rgba(25, 18, 20, 0.22);
+    box-shadow: 0 24px 60px rgba(43, 36, 32, 0.16);
   }
 
   .logout-modal h2 {
     margin: 0;
     color: ${colors.ink};
     font-family: ${font.display};
-    font-size: 23px;
+    font-size: 22px;
     font-weight: 500;
   }
 
@@ -656,6 +669,7 @@ const layoutStyles = `
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
+    transition: opacity 150ms ease;
   }
 
   .logout-cancel-button {
@@ -664,11 +678,21 @@ const layoutStyles = `
     color: ${colors.ink};
   }
 
+  .logout-cancel-button:hover {
+    background: ${colors.blush};
+  }
+
   .logout-confirm-button {
     border: none;
     background: ${colors.rose};
     color: #ffffff;
   }
+
+  .logout-confirm-button:hover {
+    opacity: 0.92;
+  }
+
+  /* ================= RESPONSIVE ================= */
 
   @media (max-width: 950px) {
     .app-sidebar {
@@ -676,18 +700,13 @@ const layoutStyles = `
       left: 0;
       top: 0;
       z-index: 100;
-      transform:
-        translateX(-105%);
-      transition:
-        transform 220ms ease;
-      box-shadow:
-        15px 0 45px
-        rgba(20, 14, 16, 0.22);
+      transform: translateX(-105%);
+      transition: transform 220ms ease;
+      box-shadow: 15px 0 45px rgba(156, 69, 96, 0.18);
     }
 
     .app-sidebar-open {
-      transform:
-        translateX(0);
+      transform: translateX(0);
     }
 
     .sidebar-close-button {
@@ -701,8 +720,7 @@ const layoutStyles = `
       display: block;
       visibility: hidden;
       border: none;
-      background:
-        rgba(24, 18, 20, 0.48);
+      background: rgba(43, 36, 32, 0.42);
       opacity: 0;
       transition:
         opacity 200ms ease,
@@ -729,7 +747,7 @@ const layoutStyles = `
 
   @media (max-width: 640px) {
     .layout-header {
-      min-height: 72px;
+      min-height: 70px;
       padding: 12px 14px;
     }
 
@@ -738,9 +756,8 @@ const layoutStyles = `
     }
 
     .layout-page-title {
-      max-width:
-        calc(100vw - 100px);
-      font-size: 20px;
+      max-width: calc(100vw - 100px);
+      font-size: 19px;
     }
 
     .layout-content {

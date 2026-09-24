@@ -7,6 +7,12 @@ const pool = require('./config/db');
 
 const app = express();
 
+// Trust the first proxy hop so `req.ip` reflects the real client IP when
+// running behind Render's reverse proxy (via X-Forwarded-For). This is
+// required for correct IP-based rate limiting on the login endpoint;
+// without it every request would appear to come from Render's proxy IP.
+app.set('trust proxy', 1);
+
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',

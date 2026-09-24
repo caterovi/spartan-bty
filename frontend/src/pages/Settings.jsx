@@ -137,6 +137,14 @@ export default function Settings() {
   const [success, setSuccess] =
     useState('');
 
+  // New — controls which section is shown
+  // on mobile/tablet only. Desktop always
+  // shows every card (see CSS override in
+  // the >=900px media query below), so this
+  // never hides anything on desktop.
+  const [activeTab, setActiveTab] =
+    useState('profile');
+
   const loadProfile =
     useCallback(async () => {
       setLoading(true);
@@ -296,6 +304,8 @@ export default function Settings() {
           response.data.message ||
           'Your password was changed successfully.'
         );
+
+        await loadProfile();
       } catch (requestError) {
         setError(
           requestError.response?.data
@@ -405,41 +415,114 @@ export default function Settings() {
           </span>
         </div>
       ) : (
-        <div className="settings-grid">
-          <AccountCard
-            user={user}
+        <>
+          <TabSwitcher
+            activeTab={activeTab}
+            onChange={setActiveTab}
           />
 
-          <PasswordCard
-            form={passwordForm}
-            showPasswords={
-              showPasswords
-            }
-            saving={saving}
-            onChange={
-              handlePasswordChange
-            }
-            onToggle={
-              togglePassword
-            }
-            onSubmit={
-              handleSubmitPassword
-            }
-            onReset={
-              handleResetPasswordForm
-            }
-          />
+          <div className="settings-grid">
+            <AccountCard
+              user={user}
+              hidden={
+                activeTab !==
+                'profile'
+              }
+            />
 
-          <AccessCard
-            user={user}
-          />
-        </div>
+            <PasswordCard
+              form={passwordForm}
+              showPasswords={
+                showPasswords
+              }
+              saving={saving}
+              onChange={
+                handlePasswordChange
+              }
+              onToggle={
+                togglePassword
+              }
+              onSubmit={
+                handleSubmitPassword
+              }
+              onReset={
+                handleResetPasswordForm
+              }
+              hidden={
+                activeTab !==
+                'security'
+              }
+            />
+
+            <AccessCard
+              user={user}
+              hidden={
+                activeTab !==
+                'profile'
+              }
+            />
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function AccountCard({ user }) {
+function TabSwitcher({
+  activeTab,
+  onChange,
+}) {
+  return (
+    <div
+      className="settings-tab-bar"
+      role="tablist"
+      aria-label="Account settings sections"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={
+          activeTab === 'profile'
+        }
+        onClick={() =>
+          onChange('profile')
+        }
+        className={
+          activeTab === 'profile'
+            ? 'settings-tab settings-tab-active'
+            : 'settings-tab'
+        }
+      >
+        <UserRound size={15} />
+        Profile
+      </button>
+
+      <button
+        type="button"
+        role="tab"
+        aria-selected={
+          activeTab === 'security'
+        }
+        onClick={() =>
+          onChange('security')
+        }
+        className={
+          activeTab === 'security'
+            ? 'settings-tab settings-tab-active'
+            : 'settings-tab'
+        }
+      >
+        <KeyRound size={15} />
+        Security
+      </button>
+    </div>
+  );
+}
+
+function AccountCard({
+  user,
+  hidden,
+}) {
   const displayName =
     user?.fullName ||
     user?.name ||
@@ -452,7 +535,14 @@ function AccountCard({ user }) {
       .toUpperCase();
 
   return (
-    <section className="settings-card settings-account-card">
+    <section
+      className="settings-card settings-account-card"
+      style={
+        hidden
+          ? { display: 'none' }
+          : undefined
+      }
+    >
       <div className="settings-profile-header">
         <div className="settings-avatar">
           {initial}
@@ -525,7 +615,10 @@ function AccountCard({ user }) {
   );
 }
 
-function AccessCard({ user }) {
+function AccessCard({
+  user,
+  hidden,
+}) {
   const role =
     user?.role ||
     'Not available';
@@ -541,7 +634,14 @@ function AccessCard({ user }) {
     );
 
   return (
-    <section className="settings-card settings-access-card">
+    <section
+      className="settings-card settings-access-card"
+      style={
+        hidden
+          ? { display: 'none' }
+          : undefined
+      }
+    >
       <div className="settings-card-header">
         <div>
           <p className="settings-card-eyebrow">
@@ -629,6 +729,7 @@ function PasswordCard({
   onToggle,
   onSubmit,
   onReset,
+  hidden,
 }) {
   const formHasValues =
     Boolean(
@@ -645,7 +746,14 @@ function PasswordCard({
     );
 
   return (
-    <section className="settings-card settings-password-card">
+    <section
+      className="settings-card settings-password-card"
+      style={
+        hidden
+          ? { display: 'none' }
+          : undefined
+      }
+    >
       <div className="settings-password-heading">
         <div className="settings-card-icon">
           <KeyRound size={20} />
@@ -1231,6 +1339,57 @@ const settingsStyles = `
   }
 
   /*
+   * New — mobile/tablet tab switcher.
+   * Hidden entirely on desktop (see the
+   * >=900px media query further below),
+   * where every card is already visible
+   * side-by-side.
+   */
+
+  .settings-tab-bar {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    margin-top: 17px;
+    padding: 4px;
+    border: 1px solid ${colors.border};
+    border-radius: 11px;
+    background: #ffffff;
+  }
+
+  .settings-tab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-height: 38px;
+    gap: 7px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: ${colors.mutedInk};
+    font-family: ${font.body};
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition:
+      background 150ms ease,
+      color 150ms ease;
+  }
+
+  .settings-tab:hover {
+    background: ${colors.blush};
+    color: ${colors.roseDeep};
+  }
+
+  .settings-tab-active,
+  .settings-tab-active:hover {
+    background: ${colors.rose};
+    color: #ffffff;
+  }
+
+  /*
    * Mobile-first grid:
    * Account
    * Password
@@ -1249,7 +1408,7 @@ const settingsStyles = `
     max-width: 100%;
     min-width: 0;
     gap: 15px;
-    margin-top: 17px;
+    margin-top: 15px;
   }
 
   .settings-card {
@@ -1762,7 +1921,13 @@ const settingsStyles = `
   }
 
   /*
-   * Desktop
+   * Desktop — the tab switcher now stays
+   * active at every width (it's no longer
+   * hidden or overridden here). Only the
+   * card belonging to the active tab is
+   * shown; the grid stays single-column
+   * and is capped so a lone card doesn't
+   * stretch too wide to read comfortably.
    */
 
   @media (min-width: 900px) {
@@ -1781,20 +1946,12 @@ const settingsStyles = `
       flex: 0 0 auto;
     }
 
-    .settings-grid {
-      grid-template-columns:
-        minmax(0, 1.1fr)
-        minmax(360px, 0.9fr);
-      grid-template-areas:
-        "account password"
-        "access password";
-      align-items: start;
-      gap: 16px;
+    .settings-tab-bar {
+      max-width: 360px;
     }
 
-    .settings-password-card {
-      position: sticky;
-      top: 18px;
+    .settings-grid {
+      max-width: 820px;
     }
   }
 
@@ -1803,13 +1960,6 @@ const settingsStyles = `
    */
 
   @media (min-width: 1200px) {
-    .settings-grid {
-      grid-template-columns:
-        minmax(0, 1.15fr)
-        minmax(390px, 0.85fr);
-      gap: 18px;
-    }
-
     .settings-header h1 {
       font-size: 30px;
     }

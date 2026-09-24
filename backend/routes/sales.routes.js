@@ -10,83 +10,66 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireSalesReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead = req.user?.role === 'head';
-
-  const isSalesSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode === 'sales';
-
-  if (!isHead && !isSalesSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'You do not have access to the Sales module.',
-    });
-  }
-
-  next();
-}
-
-function requireSalesWriteAccess(
-  req,
-  res,
-  next
-) {
-  const isSalesSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode === 'sales';
-
-  if (!isSalesSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only Sales Specialists can create or submit orders.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/products',
-  requireSalesReadAccess,
+  requireDepartmentRead(
+    'sales',
+    'You do not have access to the Sales module.',
+  ),
   salesController.getProducts
 );
 
 router.get(
   '/customers',
-  requireSalesReadAccess,
+  requireDepartmentRead(
+    'sales',
+    'You do not have access to the Sales module.',
+  ),
   salesController.getCustomers
 );
 
 router.get(
   '/orders',
-  requireSalesReadAccess,
+  requireDepartmentRead(
+    'sales',
+    'You do not have access to the Sales module.',
+  ),
   salesController.getOrders
 );
 
 router.get(
   '/orders/:id',
-  requireSalesReadAccess,
+  requireDepartmentRead(
+    'sales',
+    'You do not have access to the Sales module.',
+  ),
   salesController.getOrderById
 );
 
 router.post(
   '/orders',
-  requireSalesWriteAccess,
+  requireDepartmentWrite(
+    'sales',
+    'Only Sales Specialists can create or submit orders.',
+  ),
   salesController.createOrder
 );
 
 router.patch(
   '/orders/:id/submit',
-  requireSalesWriteAccess,
+  requireDepartmentWrite(
+    'sales',
+    'Only Sales Specialists can create or submit orders.',
+  ),
   salesController.submitOrder
 );
 

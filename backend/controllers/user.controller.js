@@ -1,15 +1,12 @@
 const bcrypt = require('bcrypt');
 const pool = require('../config/db');
+const { cleanText } = require('../utils/validation');
 
 const ALLOWED_ROLES = [
   'head',
   'specialist',
   'system_configuration',
 ];
-
-function cleanText(value) {
-  return String(value || '').trim();
-}
 
 function formatUser(user) {
   return {

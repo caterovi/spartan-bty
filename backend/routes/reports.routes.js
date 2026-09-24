@@ -10,13 +10,12 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function getDepartmentCode(user) {
-  return (
-    user?.departmentCode ||
-    user?.department?.code ||
-    ''
-  );
-}
+const {
+  requireDepartmentRead,
+  requireHeadOnly,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 function requireReportsAccess(
   req,
@@ -41,102 +40,67 @@ function requireReportsAccess(
   next();
 }
 
-function requireHead(
-  req,
-  res,
-  next
-) {
-  if (req.user?.role !== 'head') {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only the Head can view the overall management report.',
-    });
-  }
-
-  next();
-}
-
-function requireDepartment(
-  departmentCode
-) {
-  return (
-    req,
-    res,
-    next
-  ) => {
-    const isHead =
-      req.user?.role === 'head';
-
-    const isDepartmentSpecialist =
-      req.user?.role ===
-        'specialist' &&
-      getDepartmentCode(
-        req.user
-      ) === departmentCode;
-
-    if (
-      !isHead &&
-      !isDepartmentSpecialist
-    ) {
-      return res.status(403).json({
-        success: false,
-        message:
-          'You do not have access to this department report.',
-      });
-    }
-
-    next();
-  };
-}
-
 router.use(verifyToken);
 router.use(requireReportsAccess);
 
 router.get(
   '/overview',
-  requireHead,
+  requireHeadOnly(
+    'Only the Head can view the overall management report.',
+  ),
   reportsController.getOverview
 );
 
 router.get(
   '/sales',
-  requireDepartment('sales'),
+  requireDepartmentRead(
+    'sales',
+    'You do not have access to this department report.',
+  ),
   reportsController.getSalesReport
 );
 
 router.get(
   '/cdm',
-  requireDepartment('cdm'),
+  requireDepartmentRead(
+    'cdm',
+    'You do not have access to this department report.',
+  ),
   reportsController.getCdmReport
 );
 
 router.get(
   '/inventory',
-  requireDepartment(
-    'supply_chain'
+  requireDepartmentRead(
+    'supply_chain',
+    'You do not have access to this department report.',
   ),
   reportsController.getInventoryReport
 );
 
 router.get(
   '/fulfillment',
-  requireDepartment(
-    'fulfillment'
+  requireDepartmentRead(
+    'fulfillment',
+    'You do not have access to this department report.',
   ),
   reportsController.getFulfillmentReport
 );
 
 router.get(
   '/crm',
-  requireDepartment('crm'),
+  requireDepartmentRead(
+    'crm',
+    'You do not have access to this department report.',
+  ),
   reportsController.getCrmReport
 );
 
 router.get(
   '/marketing',
-  requireDepartment(
-    'marketing'
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to this department report.',
   ),
   reportsController.getMarketingReport
 );

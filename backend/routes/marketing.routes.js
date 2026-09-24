@@ -10,166 +10,142 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireMarketingReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead =
-    req.user?.role === 'head';
-
-  const isMarketingSpecialist =
-    req.user?.role ===
-      'specialist' &&
-    req.user?.departmentCode ===
-      'marketing';
-
-  if (
-    !isHead &&
-    !isMarketingSpecialist
-  ) {
-    return res.status(403).json({
-      success: false,
-
-      message:
-        'You do not have access to the Marketing module.',
-    });
-  }
-
-  next();
-}
-
-function requireHeadAccess(
-  req,
-  res,
-  next
-) {
-  if (
-    req.user?.role !== 'head'
-  ) {
-    return res.status(403).json({
-      success: false,
-
-      message:
-        'Only the Head can manage campaigns, assignments, and reviews.',
-    });
-  }
-
-  next();
-}
-
-function requireMarketingSpecialist(
-  req,
-  res,
-  next
-) {
-  const allowed =
-    req.user?.role ===
-      'specialist' &&
-    req.user?.departmentCode ===
-      'marketing';
-
-  if (!allowed) {
-    return res.status(403).json({
-      success: false,
-
-      message:
-        'Only Marketing Specialists can process assigned Marketing tasks.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+  requireHeadOnly,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/summary',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getSummary
 );
 
 router.get(
   '/users',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getMarketingUsers
 );
 
 router.get(
   '/products',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getProducts
 );
 
 router.get(
   '/campaigns',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getCampaigns
 );
 
 router.post(
   '/campaigns',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.createCampaign
 );
 
 router.patch(
   '/campaigns/:id',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.updateCampaign
 );
 
 router.get(
   '/tasks',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getTasks
 );
 
 router.post(
   '/tasks',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.createTask
 );
 
 router.get(
   '/tasks/:id',
-  requireMarketingReadAccess,
+  requireDepartmentRead(
+    'marketing',
+    'You do not have access to the Marketing module.',
+  ),
   marketingController.getTaskById
 );
 
 router.patch(
   '/tasks/:id/assign',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.assignTask
 );
 
 router.patch(
   '/tasks/:id/start',
-  requireMarketingSpecialist,
+  requireDepartmentWrite(
+    'marketing',
+    'Only Marketing Specialists can process assigned Marketing tasks.',
+  ),
   marketingController.startTask
 );
 
 router.post(
   '/tasks/:id/submissions',
-  requireMarketingSpecialist,
+  requireDepartmentWrite(
+    'marketing',
+    'Only Marketing Specialists can process assigned Marketing tasks.',
+  ),
   marketingController.submitTask
 );
 
 router.patch(
   '/submissions/:id/review',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.reviewSubmission
 );
 
 router.patch(
   '/tasks/:id/complete',
-  requireMarketingSpecialist,
+  requireDepartmentWrite(
+    'marketing',
+    'Only Marketing Specialists can process assigned Marketing tasks.',
+  ),
   marketingController.completeTask
 );
 
 router.patch(
   '/tasks/:id/cancel',
-  requireHeadAccess,
+  requireHeadOnly(
+    'Only the Head can manage campaigns, assignments, and reviews.',
+  ),
   marketingController.cancelTask
 );
 

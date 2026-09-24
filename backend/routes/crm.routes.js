@@ -10,121 +10,111 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireCrmReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead =
-    req.user?.role === 'head';
-
-  const isCrmSpecialist =
-    req.user?.role ===
-      'specialist' &&
-    req.user?.departmentCode ===
-      'crm';
-
-  if (
-    !isHead &&
-    !isCrmSpecialist
-  ) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'You do not have access to the Customer Relationship Management module.',
-    });
-  }
-
-  next();
-}
-
-function requireCrmWriteAccess(
-  req,
-  res,
-  next
-) {
-  const isCrmSpecialist =
-    req.user?.role ===
-      'specialist' &&
-    req.user?.departmentCode ===
-      'crm';
-
-  if (!isCrmSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only CRM Specialists can update CRM records.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/users',
-  requireCrmReadAccess,
+  requireDepartmentRead(
+    'crm',
+    'You do not have access to the Customer Relationship Management module.',
+  ),
   crmController.getCrmUsers
 );
 
 router.get(
   '/summary',
-  requireCrmReadAccess,
+  requireDepartmentRead(
+    'crm',
+    'You do not have access to the Customer Relationship Management module.',
+  ),
   crmController.getSummary
 );
 
 router.get(
   '/cases',
-  requireCrmReadAccess,
+  requireDepartmentRead(
+    'crm',
+    'You do not have access to the Customer Relationship Management module.',
+  ),
   crmController.getCases
 );
 
 router.get(
   '/cases/:id',
-  requireCrmReadAccess,
+  requireDepartmentRead(
+    'crm',
+    'You do not have access to the Customer Relationship Management module.',
+  ),
   crmController.getCaseById
 );
 
 router.patch(
   '/cases/:id/assign',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.assignCase
 );
 
 router.patch(
   '/cases/:id/concern',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.updateConcern
 );
 
 router.patch(
   '/cases/:id/schedule',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.scheduleFollowUp
 );
 
 router.patch(
   '/cases/:id/steps/:stepNumber',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.updateAfterSalesStep
 );
 
 router.put(
   '/cases/:id/satisfaction',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.saveSatisfaction
 );
 
 router.patch(
   '/cases/:id/resolve',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.resolveCase
 );
 
 router.patch(
   '/cases/:id/close',
-  requireCrmWriteAccess,
+  requireDepartmentWrite(
+    'crm',
+    'Only CRM Specialists can update CRM records.',
+  ),
   crmController.closeCase
 );
 

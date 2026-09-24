@@ -10,113 +10,102 @@ const verifyToken = require(
   '../middleware/auth'
 );
 
-function requireFulfillmentReadAccess(
-  req,
-  res,
-  next
-) {
-  const isHead =
-    req.user?.role === 'head';
-
-  const isFulfillmentSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode ===
-      'fulfillment';
-
-  if (
-    !isHead &&
-    !isFulfillmentSpecialist
-  ) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'You do not have access to the Fulfillment module.',
-    });
-  }
-
-  next();
-}
-
-function requireFulfillmentWriteAccess(
-  req,
-  res,
-  next
-) {
-  const isFulfillmentSpecialist =
-    req.user?.role === 'specialist' &&
-    req.user?.departmentCode ===
-      'fulfillment';
-
-  if (!isFulfillmentSpecialist) {
-    return res.status(403).json({
-      success: false,
-      message:
-        'Only Fulfillment Specialists can process fulfillment orders.',
-    });
-  }
-
-  next();
-}
+const {
+  requireDepartmentRead,
+  requireDepartmentWrite,
+} = require(
+  '../middleware/departmentAccess'
+);
 
 router.use(verifyToken);
 
 router.get(
   '/summary',
-  requireFulfillmentReadAccess,
+  requireDepartmentRead(
+    'fulfillment',
+    'You do not have access to the Fulfillment module.',
+  ),
   fulfillmentController.getSummary
 );
 
 router.get(
   '/orders',
-  requireFulfillmentReadAccess,
+  requireDepartmentRead(
+    'fulfillment',
+    'You do not have access to the Fulfillment module.',
+  ),
   fulfillmentController.getOrders
 );
 
 router.get(
   '/packaging-items',
-  requireFulfillmentReadAccess,
+  requireDepartmentRead(
+    'fulfillment',
+    'You do not have access to the Fulfillment module.',
+  ),
   fulfillmentController.getPackagingItems
 );
 
 router.get(
   '/orders/:id',
-  requireFulfillmentReadAccess,
+  requireDepartmentRead(
+    'fulfillment',
+    'You do not have access to the Fulfillment module.',
+  ),
   fulfillmentController.getOrderById
 );
 
 router.patch(
   '/orders/:id/start-packing',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.startPacking
 );
 
 router.patch(
   '/orders/:id/complete-packing',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.completePacking
 );
 
 router.patch(
   '/orders/:id/ready',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.markReadyForShipment
 );
 
 router.patch(
   '/orders/:id/ship',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.shipOrder
 );
 
 router.patch(
   '/orders/:id/deliver',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.markDelivered
 );
 
 router.patch(
   '/orders/:id/return',
-  requireFulfillmentWriteAccess,
+  requireDepartmentWrite(
+    'fulfillment',
+    'Only Fulfillment Specialists can process fulfillment orders.',
+  ),
   fulfillmentController.markReturnedToSender
 );
 

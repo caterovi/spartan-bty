@@ -43,7 +43,7 @@ export default function Landing() {
             to="/login"
             className="landing-login-button"
           >
-            Staff Login
+            Login
             <ArrowRight size={16} />
           </Link>
         </div>

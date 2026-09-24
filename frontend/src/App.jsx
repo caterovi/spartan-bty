@@ -1,11 +1,11 @@
 import {
   BrowserRouter,
   Navigate,
-  Outlet,
   Route,
   Routes,
-  useLocation,
 } from 'react-router-dom';
+
+import ProtectedRoute from './components/ProtectedRoute';
 
 import Layout from './components/Layout';
 
@@ -30,17 +30,6 @@ function getStoredUser() {
   } catch {
     return null;
   }
-}
-
-function ProtectedRoute() {
-  const token = localStorage.getItem('token');
-  const user = getStoredUser();
-
-  if (!token || !user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <Outlet />;
 }
 
 function OperationalRoute({ departmentCode, children }) {

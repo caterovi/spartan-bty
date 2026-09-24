@@ -4,6 +4,11 @@ const {
   deriveOrderWorkflow,
 } = require('../utils/orderWorkflow');
 
+const {
+  cleanText,
+  isValidHttpUrl,
+} = require('../utils/validation');
+
 const CREATE_STATUSES = [
   'draft',
   'for_confirmation',
@@ -16,10 +21,6 @@ const ORDER_STATUSES = [
   'rejected',
   'cancelled',
 ];
-
-function cleanText(value) {
-  return String(value || '').trim();
-}
 
 function normalizeContactNumber(value) {
   return cleanText(value).replace(/[+ ()-]/g, '');
@@ -51,22 +52,6 @@ function generateOrderNumber() {
     .toUpperCase();
 
   return `BTY-${dateCode}-${randomCode}`;
-}
-
-function isValidConversationLink(value) {
-  if (!value) {
-    return true;
-  }
-
-  try {
-    const parsedUrl = new URL(value);
-
-    return ['http:', 'https:'].includes(
-      parsedUrl.protocol
-    );
-  } catch {
-    return false;
-  }
 }
 
 function getOrderWorkflow(row) {
@@ -648,7 +633,7 @@ exports.createOrder = async (req, res) => {
     }
 
     if (
-      !isValidConversationLink(
+      !isValidHttpUrl(
         conversationLink
       )
     ) {
