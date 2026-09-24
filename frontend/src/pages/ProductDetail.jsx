@@ -15,6 +15,7 @@ import {
 import api from '../api/axiosInstance';
 import logo from '../assets/Spartan_BTY_logo.webp';
 import StorefrontAccountLinks from '../components/StorefrontAccountLinks';
+import AddToCartButton from '../components/AddToCartButton';
 import '../styles/storefront.css';
 
 function formatPrice(value) {
@@ -150,13 +151,18 @@ export default function ProductDetail() {
                   </p>
                 </div>
 
+                <AddToCartButton
+                  product={product}
+                  returnTo={`/products/${product.id}`}
+                />
+
                 <div className="storefront-detail-notice">
                   <ShieldCheck size={21} />
                   <div>
-                    <strong>Browsing-only release</strong>
+                    <strong>Sales-reviewed ordering</strong>
                     <p>
-                      Customer accounts are available. Cart, checkout, and
-                      online payments are not active in this storefront phase.
+                      Add products to your cart and place an order for Sales
+                      review. Online payment is not included in this phase.
                     </p>
                   </div>
                 </div>

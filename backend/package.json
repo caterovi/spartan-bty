@@ -16,7 +16,8 @@
     "setup:crm-steps": "node setup-crm-four-steps.js",
     "setup:marketing": "node setup-marketing-db.js",
     "setup:storefront": "node setup-storefront-db.js",
-    "setup:customer-auth": "node setup-customer-auth-db.js"
+    "setup:customer-auth": "node setup-customer-auth-db.js",
+    "setup:customer-commerce": "node setup-customer-commerce-db.js"
   },
   "keywords": [],
   "author": "",

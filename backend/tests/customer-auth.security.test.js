@@ -131,6 +131,20 @@ async function execute(sql, parameters = []) {
   }
 
   if (
+    query.includes('from customer_accounts') &&
+    query.includes('where id = ?') &&
+    query.includes('and customer_id = ?')
+  ) {
+    const account = state.accounts.find(
+      (item) =>
+        item.id === Number(parameters[0]) &&
+        item.customer_id === Number(parameters[1]) &&
+        item.status === 'active'
+    );
+    return [[...(account ? [{ id: account.id }] : [])]];
+  }
+
+  if (
     query.includes('from users u') &&
     query.includes('left join departments d')
   ) {
@@ -308,6 +322,7 @@ test('customer authentication is isolated from staff access', async (t) => {
       '/api/dashboard',
       '/api/users',
       '/api/reports/overview',
+      '/api/sales/orders',
       '/api/auth/me',
     ]) {
       const { response } = await request(path, {
@@ -364,5 +379,10 @@ test('customer authentication is isolated from staff access', async (t) => {
       headers: { Authorization: `Bearer ${staffToken}` },
     });
     assert.equal(response.status, 401);
+
+    const cartResponse = await request('/api/customer/cart', {
+      headers: { Authorization: `Bearer ${staffToken}` },
+    });
+    assert.equal(cartResponse.response.status, 401);
   });
 });

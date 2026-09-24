@@ -5,7 +5,7 @@ import {
   EyeOff,
   UserPlus,
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import customerApi from '../api/customerAxiosInstance';
 import logo from '../assets/Spartan_BTY_logo.webp';
@@ -22,6 +22,7 @@ const initialForm = {
 
 export default function CustomerSignup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState(initialForm);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -68,7 +69,17 @@ export default function CustomerSignup() {
         JSON.stringify(response.data.customer)
       );
 
-      navigate('/account', { replace: true });
+      const requestedPath = location.state?.from;
+      const safeCustomerPath =
+        typeof requestedPath === 'string' &&
+        (requestedPath === '/' ||
+          requestedPath.startsWith('/account') ||
+          requestedPath.startsWith('/cart') ||
+          requestedPath.startsWith('/orders') ||
+          requestedPath.startsWith('/products/'));
+      navigate(safeCustomerPath ? requestedPath : '/account', {
+        replace: true,
+      });
     } catch (requestError) {
       setError(
         requestError.response?.data?.message ||
@@ -208,7 +219,8 @@ export default function CustomerSignup() {
           </button>
 
           <p className="customer-auth-switch">
-            Already registered? <Link to="/customer/login">Customer login</Link>
+            Already registered?{' '}
+            <Link to="/customer/login" state={location.state}>Customer login</Link>
           </p>
         </form>
       </section>

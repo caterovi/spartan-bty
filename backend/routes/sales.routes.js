@@ -73,4 +73,13 @@ router.patch(
   salesController.submitOrder
 );
 
+router.patch(
+  '/orders/:id/storefront-review',
+  requireDepartmentWrite(
+    'sales',
+    'Only Sales Specialists can review online orders.',
+  ),
+  salesController.reviewStorefrontOrder
+);
+
 module.exports = router;

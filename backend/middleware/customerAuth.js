@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
+const pool = require('../config/db');
 
 function getCustomerAccessSecret() {
   return process.env.CUSTOMER_JWT_SECRET || null;
 }
 
-function verifyCustomerToken(req, res, next) {
+async function verifyCustomerToken(req, res, next) {
   const authorization = req.headers.authorization;
 
   if (!authorization) {
@@ -49,6 +50,25 @@ function verifyCustomerToken(req, res, next) {
       return res.status(403).json({
         success: false,
         message: 'A customer account is required.',
+      });
+    }
+
+    const [accountRows] = await pool.execute(
+      `
+        SELECT id
+        FROM customer_accounts
+        WHERE id = ?
+          AND customer_id = ?
+          AND status = 'active'
+        LIMIT 1
+      `,
+      [Number(decoded.id), Number(decoded.customerId)]
+    );
+
+    if (accountRows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'Customer account is unavailable or inactive.',
       });
     }
 

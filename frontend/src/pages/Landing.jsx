@@ -22,6 +22,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/axiosInstance';
 import logo from '../assets/Spartan_BTY_logo.webp';
 import StorefrontAccountLinks from '../components/StorefrontAccountLinks';
+import AddToCartButton from '../components/AddToCartButton';
 import '../styles/storefront.css';
 
 const UNCATEGORIZED = 'Uncategorized';
@@ -96,6 +97,11 @@ function ProductCard({ product }) {
             <ChevronRight size={16} />
           </Link>
         </div>
+        <AddToCartButton
+          product={product}
+          returnTo={`/products/${product.id}`}
+          compact
+        />
       </div>
     </article>
   );
@@ -244,8 +250,8 @@ export default function Landing() {
 
               <p className="storefront-phase-note">
                 <ShieldCheck size={16} />
-                Product browsing and customer accounts are live. Cart and
-                checkout are planned for a later storefront phase.
+                Product browsing, customer accounts, carts, and Sales-reviewed
+                ordering are now available. Online payment is not included.
               </p>
             </div>
 
@@ -372,8 +378,8 @@ export default function Landing() {
                 <h2>A clear path from browsing to after-sales care</h2>
               </div>
               <p>
-                This release is product browsing only. The account and ordering
-                steps below will be introduced in future phases.
+                Customer orders are reviewed by Sales before they enter the
+                existing confirmation and fulfillment workflow.
               </p>
             </div>
 
@@ -388,14 +394,14 @@ export default function Landing() {
                 <span>02</span>
                 <ShieldCheck size={22} />
                 <h3>Account and order</h3>
-                <p>Create a customer account now. Cart and checkout will be
-                  added before online ordering opens.</p>
+                <p>Create an account, review your cart, and place an order using
+                  your saved contact and delivery details.</p>
               </li>
               <li>
                 <span>03</span>
                 <Sparkles size={22} />
                 <h3>Staff review and care</h3>
-                <p>Future online orders will pass through Sales, CDM, Fulfillment, and CRM.</p>
+                <p>Online orders pass through Sales review, CDM, Fulfillment, and CRM.</p>
               </li>
             </ol>
           </div>

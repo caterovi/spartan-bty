@@ -1,3 +1,5 @@
+@import './customer-commerce.css';
+
 :root {
   --storefront-rose: #c4607a;
   --storefront-rose-deep: #914158;

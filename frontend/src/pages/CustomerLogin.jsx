@@ -51,11 +51,15 @@ export default function CustomerLogin() {
       );
 
       const requestedPath = location.state?.from;
-      navigate(
+      const safeCustomerPath =
         typeof requestedPath === 'string' &&
-          requestedPath.startsWith('/account')
-          ? requestedPath
-          : '/account',
+        (requestedPath === '/' ||
+          requestedPath.startsWith('/account') ||
+          requestedPath.startsWith('/cart') ||
+          requestedPath.startsWith('/orders') ||
+          requestedPath.startsWith('/products/'));
+      navigate(
+        safeCustomerPath ? requestedPath : '/account',
         { replace: true }
       );
     } catch (requestError) {
@@ -147,7 +151,10 @@ export default function CustomerLogin() {
           </button>
 
           <p className="customer-auth-switch">
-            New customer? <Link to="/customer/signup">Create an account</Link>
+            New customer?{' '}
+            <Link to="/customer/signup" state={location.state}>
+              Create an account
+            </Link>
           </p>
 
           <p className="customer-auth-staff-note">

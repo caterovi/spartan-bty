@@ -30,6 +30,7 @@ const initialForm = {
 
 const statusLabels = {
   draft: 'Draft',
+  sales_review: 'Sales Review',
   for_confirmation: 'For Confirmation',
   confirmed: 'Confirmed',
   rejected: 'Rejected',
@@ -103,6 +104,14 @@ export default function Sales() {
 
   const [actionLoadingId, setActionLoadingId] =
     useState(null);
+
+  const [reviewForm, setReviewForm] = useState({
+    fullName: '',
+    contactNumber: '',
+    address: '',
+    reason: '',
+    itemQuantities: [],
+  });
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -192,14 +201,18 @@ export default function Sales() {
     return orders.filter((order) => {
       const matchesStatus =
         !statusFilter ||
-        order.orderStatus === statusFilter;
+        (statusFilter === 'sales_review'
+          ? order.salesReviewStatus === 'pending'
+          : order.orderStatus === statusFilter);
 
       const searchableValues = [
         order.orderNumber,
         order.customer?.fullName,
         order.customer?.contactNumber,
         order.encodedBy?.fullName,
-        statusLabels[order.orderStatus],
+        order.salesReviewStatus === 'pending'
+          ? statusLabels.sales_review
+          : statusLabels[order.orderStatus],
       ];
 
       const matchesSearch =
@@ -258,7 +271,13 @@ export default function Sales() {
     );
 
   const draftCount = orders.filter(
-    (order) => order.orderStatus === 'draft'
+    (order) =>
+      order.orderStatus === 'draft' &&
+      order.salesReviewStatus !== 'pending'
+  ).length;
+
+  const salesReviewCount = orders.filter(
+    (order) => order.salesReviewStatus === 'pending'
   ).length;
 
   const forConfirmationCount = orders.filter(
@@ -609,6 +628,17 @@ export default function Sales() {
       setSelectedOrder(
         response.data.order
       );
+      const order = response.data.order;
+      setReviewForm({
+        fullName: order.deliverySnapshot?.fullName || '',
+        contactNumber: order.deliverySnapshot?.contactNumber || '',
+        address: order.deliverySnapshot?.address || '',
+        reason: '',
+        itemQuantities: (order.items || []).map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+        })),
+      });
     } catch (requestError) {
       setError(
         requestError.response?.data?.message ||
@@ -661,6 +691,48 @@ export default function Sales() {
     }
   };
 
+  const reviewStorefrontOrder = async (action) => {
+    if (!selectedOrder || submitting) return;
+    if (action === 'reject' && reviewForm.reason.trim().length < 5) {
+      setError('Enter a clear customer-facing rejection reason.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await api.patch(
+        `/sales/orders/${selectedOrder.id}/storefront-review`,
+        {
+          action,
+          reason: reviewForm.reason.trim(),
+          corrections: {
+            delivery: {
+              fullName: reviewForm.fullName.trim(),
+              contactNumber: reviewForm.contactNumber.trim(),
+              address: reviewForm.address.trim(),
+            },
+            itemQuantities: reviewForm.itemQuantities.map((item) => ({
+              productId: Number(item.productId),
+              quantity: Number(item.quantity),
+            })),
+          },
+        }
+      );
+      setSuccess(response.data.message);
+      setSelectedOrder(null);
+      await loadData();
+    } catch (requestError) {
+      setError(
+        requestError.response?.data?.message ||
+          'Unable to review the online order.'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div>
       <section style={styles.pageHeader}>
@@ -700,6 +772,11 @@ export default function Sales() {
         <SummaryCard
           label="DRAFT ORDERS"
           value={draftCount}
+        />
+
+        <SummaryCard
+          label="ONLINE SALES REVIEW"
+          value={salesReviewCount}
         />
 
         <SummaryCard
@@ -773,6 +850,10 @@ export default function Sales() {
 
               <option value="draft">
                 Draft
+              </option>
+
+              <option value="sales_review">
+                Online Sales Review
               </option>
 
               <option value="for_confirmation">
@@ -919,7 +1000,9 @@ export default function Sales() {
                       >
                         <StatusBadge
                           status={
-                            order.orderStatus
+                            order.salesReviewStatus === 'pending'
+                              ? 'sales_review'
+                              : order.orderStatus
                           }
                         />
 
@@ -981,7 +1064,8 @@ export default function Sales() {
 
                           {canWrite &&
                             order.orderStatus ===
-                              'draft' && (
+                              'draft' &&
+                            order.salesReviewStatus !== 'pending' && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1569,18 +1653,24 @@ export default function Sales() {
               <Detail
                 label="Contact number"
                 value={
-                  selectedOrder.customer
-                    ?.contactNumber
+                  selectedOrder.orderSource === 'storefront'
+                    ? selectedOrder.deliverySnapshot?.contactNumber
+                    : selectedOrder.customer?.contactNumber
                 }
               />
 
               <Detail
                 label="Order status"
                 value={
-                  statusLabels[
-                    selectedOrder.orderStatus
-                  ]
+                  selectedOrder.salesReviewStatus === 'pending'
+                    ? statusLabels.sales_review
+                    : statusLabels[selectedOrder.orderStatus]
                 }
+              />
+
+              <Detail
+                label="Order source"
+                value={selectedOrder.orderSource === 'storefront' ? 'Online storefront' : 'Staff entry'}
               />
 
               <Detail
@@ -1625,8 +1715,9 @@ export default function Sales() {
               <Detail
                 label="Address"
                 value={
-                  selectedOrder.customer
-                    ?.address
+                  selectedOrder.orderSource === 'storefront'
+                    ? selectedOrder.deliverySnapshot?.address
+                    : selectedOrder.customer?.address
                 }
                 fullWidth
               />
@@ -1738,6 +1829,50 @@ export default function Sales() {
                 )}
               </strong>
             </div>
+
+            {selectedOrder.salesReviewHistory?.length > 0 && (
+              <section style={styles.reviewHistory}>
+                <h3 style={styles.itemsTitle}>Sales review audit</h3>
+                {selectedOrder.salesReviewHistory.map((event, index) => (
+                  <div key={`${event.createdAt}-${index}`}>
+                    <strong>{event.action.replaceAll('_', ' ')}</strong>
+                    <span>{event.reviewedBy} · {formatDate(event.createdAt)}</span>
+                    {event.reason && <p>{event.reason}</p>}
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {canWrite &&
+              selectedOrder.orderSource === 'storefront' &&
+              selectedOrder.salesReviewStatus === 'pending' && (
+                <section style={styles.reviewPanel}>
+                  <div>
+                    <p style={styles.eyebrow}>ONLINE ORDER REVIEW</p>
+                    <h3 style={styles.itemsTitle}>Review, correct, and hand off</h3>
+                    <p style={styles.sectionDescription}>
+                      Corrections are limited to the delivery snapshot and item quantities.
+                      Every change and reason is recorded in the audit trail.
+                    </p>
+                  </div>
+                  {error && <div style={styles.errorMessage}>{error}</div>}
+                  <div style={styles.formGrid}>
+                    <Field label="Delivery name"><input style={styles.input} value={reviewForm.fullName} onChange={(event) => setReviewForm((current) => ({ ...current, fullName: event.target.value }))} /></Field>
+                    <Field label="Contact number"><input style={styles.input} value={reviewForm.contactNumber} onChange={(event) => setReviewForm((current) => ({ ...current, contactNumber: event.target.value }))} /></Field>
+                    <Field label="Delivery address" fullWidth><textarea style={styles.textarea} value={reviewForm.address} onChange={(event) => setReviewForm((current) => ({ ...current, address: event.target.value }))} /></Field>
+                    {selectedOrder.items.map((item, index) => (
+                      <Field key={item.productId} label={`${item.productName} quantity`}>
+                        <input type="number" min="1" step="1" style={styles.input} value={reviewForm.itemQuantities[index]?.quantity || ''} onChange={(event) => setReviewForm((current) => ({ ...current, itemQuantities: current.itemQuantities.map((entry, itemIndex) => itemIndex === index ? { ...entry, quantity: event.target.value } : entry) }))} />
+                      </Field>
+                    ))}
+                    <Field label="Audit / customer-facing reason" fullWidth><textarea style={styles.textarea} value={reviewForm.reason} onChange={(event) => setReviewForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Required for corrections or rejection" /></Field>
+                  </div>
+                  <div style={styles.modalActions}>
+                    <button type="button" style={styles.secondaryButton} disabled={submitting} onClick={() => reviewStorefrontOrder('reject')}>Reject order</button>
+                    <button type="button" style={styles.primaryButton} disabled={submitting} onClick={() => reviewStorefrontOrder('submit')}>{submitting ? 'Submitting…' : 'Submit to CDM'}</button>
+                  </div>
+                </section>
+              )}
           </section>
         </div>
       )}
@@ -1828,6 +1963,7 @@ function Detail({
 function StatusBadge({ status }) {
   const statusStyles = {
     draft: styles.draftStatus,
+    sales_review: styles.salesReviewStatus,
     for_confirmation:
       styles.confirmationStatus,
     confirmed: styles.confirmedStatus,
@@ -1848,6 +1984,25 @@ function StatusBadge({ status }) {
 }
 
 const styles = {
+  reviewHistory: {
+    display: 'grid',
+    gap: '10px',
+    marginTop: '20px',
+    padding: '16px',
+    borderRadius: '11px',
+    border: `1px solid ${colors.border}`,
+    background: '#ffffff',
+  },
+
+  reviewPanel: {
+    display: 'grid',
+    gap: '18px',
+    marginTop: '22px',
+    padding: '20px',
+    border: `1px solid ${colors.rose}`,
+    borderRadius: '13px',
+    background: colors.blush,
+  },
   selectedCustomerCard: {
     gridColumn: '1 / -1',
     display: 'flex',
@@ -2118,6 +2273,11 @@ const styles = {
   confirmationStatus: {
     background: '#fff5d9',
     color: '#725b1e',
+  },
+
+  salesReviewStatus: {
+    background: '#f8e8f0',
+    color: colors.roseDeep,
   },
 
   confirmedStatus: {

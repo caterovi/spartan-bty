@@ -16,7 +16,11 @@ function clearCustomerAuthentication() {
   localStorage.removeItem('customerRefreshToken');
   localStorage.removeItem('customerUser');
 
-  if (window.location.pathname.startsWith('/account')) {
+  if (
+    window.location.pathname.startsWith('/account') ||
+    window.location.pathname.startsWith('/cart') ||
+    window.location.pathname.startsWith('/orders')
+  ) {
     window.location.href = '/customer/login';
   }
 }

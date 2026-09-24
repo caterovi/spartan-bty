@@ -19,6 +19,36 @@ function createWorkflow(
 }
 
 function deriveOrderWorkflow(order) {
+  if (
+    order.orderSource === 'storefront' &&
+    order.salesReviewStatus === 'pending'
+  ) {
+    return createWorkflow(
+      'Sales',
+      'Storefront',
+      'Review Online Order',
+      'Sales',
+      order.createdAt,
+      true,
+      'Awaiting Sales Review'
+    );
+  }
+
+  if (
+    order.orderSource === 'storefront' &&
+    order.salesReviewStatus === 'rejected'
+  ) {
+    return createWorkflow(
+      'Sales',
+      'Storefront',
+      'No further action',
+      null,
+      order.salesReviewedAt,
+      false,
+      'Rejected by Sales'
+    );
+  }
+
   if (order.crmCaseId) {
     if (order.crmCaseStatus === 'closed') {
       return createWorkflow(

@@ -123,11 +123,15 @@ export default function CustomerAccount() {
             </section>
 
             <section className="customer-account-coming-soon">
-              <h2>Storefront account features</h2>
+              <h2>Your storefront activity</h2>
               <p>
-                Cart, online order history, and eligible feedback will be added
-                in later storefront phases. They are not active in this release.
+                Manage the products in your cart or follow orders that have
+                been placed for Sales review.
               </p>
+              <div className="customer-account-actions">
+                <Link to="/cart">View cart</Link>
+                <Link to="/orders">View orders</Link>
+              </div>
             </section>
           </>
         )}

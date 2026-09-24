@@ -22,9 +22,11 @@ export default function StorefrontAccountLinks() {
   return (
     <div className="storefront-header-actions">
       {customerSignedIn ? (
-        <Link to="/account" className="storefront-customer-link">
-          My account
-        </Link>
+        <>
+          <Link to="/cart" className="storefront-customer-link">Cart</Link>
+          <Link to="/orders" className="storefront-customer-link">Orders</Link>
+          <Link to="/account" className="storefront-customer-link">My account</Link>
+        </>
       ) : (
         <>
           <Link

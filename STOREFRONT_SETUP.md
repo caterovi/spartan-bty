@@ -11,6 +11,7 @@ From `backend/`, run these against the intended non-production database first:
 ```sh
 npm run setup:storefront
 npm run setup:customer-auth
+npm run setup:customer-commerce
 ```
 
 `setup:storefront` adds nullable `description`, `storefront_category`, and
@@ -20,6 +21,11 @@ a count of missing storefront values.
 `setup:customer-auth` creates `customer_accounts`, with a unique one-to-one
 foreign key to `customers`. It does not seed accounts or add role/department
 columns.
+
+`setup:customer-commerce` creates customer carts, adds online-order source,
+delivery snapshot, Sales-review, and idempotency fields to `orders`, and creates
+the append-only Sales review audit table. Existing orders default to staff
+orders and do not enter the online Sales-review queue.
 
 ## Required environment values
 
@@ -80,5 +86,34 @@ record by knowing its contact details.
 - Existing staff sessions must sign in again after rollout because older tokens
   do not carry the new issuer, audience, and account-type claims.
 
-This release does not add cart, checkout, payment, customer order history, or
-feedback workflows.
+## Online ordering and stock policy
+
+Customer order placement always derives the customer from the verified token,
+loads prices from `products.default_price`, and checks active finished-product
+inventory. The submitted request cannot choose a customer, price, total, role,
+or status. An idempotency key prevents a retry from creating the same order
+twice. Contact and address values are copied onto the order at placement so a
+later profile edit does not change the historical delivery instructions.
+
+Online orders enter the Sales queue as a storefront draft with a separate
+`pending` Sales-review state. A Sales specialist can submit it unchanged,
+correct only delivery snapshots and quantities with an audit reason, or reject
+it with a customer-facing reason. Only the explicit submit action changes the
+existing order status to `for_confirmation` for CDM.
+
+This phase intentionally uses a **check-without-reservation** stock policy:
+
+- Cart changes and order placement check current stock but do not deduct or
+  reserve it.
+- Sales review checks stock again before sending the order to CDM.
+- Fulfillment remains the only automatic deduction point. Packing completion
+  locks and rechecks inventory, records the movement, and uses
+  `inventory_deducted_at` to prevent a second deduction.
+- Concurrent accepted orders can therefore exceed stock before packing. The
+  customer UI discloses this and Sales/Fulfillment must reject or resolve an
+  order that later becomes unavailable.
+- Cancellation before packing needs no stock restoration because nothing was
+  deducted. A return after packing is not automatically restocked; Supply Chain
+  must inspect it and record an appropriate stock-in or adjustment.
+
+This release does not add payments, ratings, reviews, or customer feedback.

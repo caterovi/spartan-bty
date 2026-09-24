@@ -56,6 +56,9 @@ function generateOrderNumber() {
 
 function getOrderWorkflow(row) {
   return deriveOrderWorkflow({
+    orderSource: row.order_source,
+    salesReviewStatus: row.sales_review_status,
+    salesReviewedAt: row.sales_reviewed_at,
     orderStatus: row.order_status,
     createdAt: row.created_at,
     submittedAt: row.submitted_at,
@@ -225,6 +228,14 @@ exports.getOrders = async (req, res) => {
           o.order_number,
           o.customer_id,
           o.encoded_by,
+          o.order_source,
+          o.sales_review_status,
+          o.delivery_name_snapshot,
+          o.delivery_contact_snapshot,
+          o.delivery_address_snapshot,
+          o.public_status_message,
+          o.sales_reviewed_by,
+          o.sales_reviewed_at,
           o.conversation_link,
           o.skin_concern,
           o.tags,
@@ -311,6 +322,14 @@ exports.getOrders = async (req, res) => {
           o.order_number,
           o.customer_id,
           o.encoded_by,
+          o.order_source,
+          o.sales_review_status,
+          o.delivery_name_snapshot,
+          o.delivery_contact_snapshot,
+          o.delivery_address_snapshot,
+          o.public_status_message,
+          o.sales_reviewed_by,
+          o.sales_reviewed_at,
           o.conversation_link,
           o.skin_concern,
           o.tags,
@@ -351,8 +370,21 @@ exports.getOrders = async (req, res) => {
           id: order.encoded_by,
           fullName:
             order.encoded_by_name ||
-            'Former user',
+            (order.order_source === 'storefront'
+              ? 'Online storefront'
+              : 'Former user'),
         },
+
+        orderSource: order.order_source || 'staff',
+        salesReviewStatus:
+          order.sales_review_status || 'not_required',
+        deliverySnapshot: {
+          fullName: order.delivery_name_snapshot,
+          contactNumber: order.delivery_contact_snapshot,
+          address: order.delivery_address_snapshot,
+        },
+        publicStatusMessage: order.public_status_message,
+        salesReviewedAt: order.sales_reviewed_at,
 
         conversationLink:
           order.conversation_link,
@@ -412,6 +444,14 @@ exports.getOrderById = async (req, res) => {
           o.order_number,
           o.customer_id,
           o.encoded_by,
+          o.order_source,
+          o.sales_review_status,
+          o.delivery_name_snapshot,
+          o.delivery_contact_snapshot,
+          o.delivery_address_snapshot,
+          o.public_status_message,
+          o.sales_reviewed_by,
+          o.sales_reviewed_at,
           o.conversation_link,
           o.skin_concern,
           o.tags,
@@ -516,6 +556,21 @@ exports.getOrderById = async (req, res) => {
       [orderId]
     );
 
+    const [reviewRows] = await pool.execute(
+      `
+        SELECT
+          sre.action,
+          sre.reason,
+          sre.created_at,
+          u.full_name AS reviewed_by_name
+        FROM sales_order_review_events sre
+        LEFT JOIN users u ON u.id = sre.reviewed_by
+        WHERE sre.order_id = ?
+        ORDER BY sre.created_at ASC, sre.id ASC
+      `,
+      [orderId]
+    );
+
     const order = orderRows[0];
 
     return res.json({
@@ -536,8 +591,21 @@ exports.getOrderById = async (req, res) => {
           id: order.encoded_by,
           fullName:
             order.encoded_by_name ||
-            'Former user',
+            (order.order_source === 'storefront'
+              ? 'Online storefront'
+              : 'Former user'),
         },
+
+        orderSource: order.order_source || 'staff',
+        salesReviewStatus:
+          order.sales_review_status || 'not_required',
+        deliverySnapshot: {
+          fullName: order.delivery_name_snapshot,
+          contactNumber: order.delivery_contact_snapshot,
+          address: order.delivery_address_snapshot,
+        },
+        publicStatusMessage: order.public_status_message,
+        salesReviewedAt: order.sales_reviewed_at,
 
         conversationLink:
           order.conversation_link,
@@ -569,6 +637,13 @@ exports.getOrderById = async (req, res) => {
           quantity: Number(item.quantity),
           unitPrice: Number(item.unit_price),
           lineTotal: Number(item.line_total),
+        })),
+
+        salesReviewHistory: reviewRows.map((event) => ({
+          action: event.action,
+          reason: event.reason,
+          reviewedBy: event.reviewed_by_name || 'Former user',
+          createdAt: event.created_at,
         })),
       },
     });
@@ -1042,6 +1117,8 @@ exports.submitOrder = async (req, res) => {
           SELECT
             id,
             order_status,
+            order_source,
+            sales_review_status,
             total_amount
           FROM orders
           WHERE id = ?
@@ -1060,6 +1137,16 @@ exports.submitOrder = async (req, res) => {
     }
 
     const order = orderRows[0];
+
+    if (order.order_source === 'storefront') {
+      await connection.rollback();
+
+      return res.status(409).json({
+        success: false,
+        message:
+          'Online orders must use the audited Sales review action before CDM submission.',
+      });
+    }
 
     if (order.order_status !== 'draft') {
       await connection.rollback();
@@ -1135,5 +1222,390 @@ exports.submitOrder = async (req, res) => {
     if (connection) {
       connection.release();
     }
+  }
+};
+
+// PATCH /api/sales/orders/:id/storefront-review
+exports.reviewStorefrontOrder = async (req, res) => {
+  let connection;
+
+  try {
+    const orderId = Number(req.params.id);
+    const action = cleanText(req.body.action);
+    const reason = cleanText(req.body.reason);
+    const corrections = req.body.corrections || {};
+
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid order.' });
+    }
+
+    if (!['submit', 'reject'].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Choose whether to submit or reject the online order.',
+      });
+    }
+
+    if (reason.length > 500 || (action === 'reject' && reason.length < 5)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a clear customer-facing reason of 5 to 500 characters.',
+      });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [orderRows] = await connection.execute(
+      `
+        SELECT
+          id,
+          order_number,
+          order_source,
+          sales_review_status,
+          order_status,
+          delivery_name_snapshot,
+          delivery_contact_snapshot,
+          delivery_address_snapshot,
+          total_amount
+        FROM orders
+        WHERE id = ?
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    const order = orderRows[0];
+    if (
+      order.order_source !== 'storefront' ||
+      order.sales_review_status !== 'pending' ||
+      order.order_status !== 'draft'
+    ) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'This online order is no longer waiting for Sales review.',
+      });
+    }
+
+    const [itemRows] = await connection.execute(
+      `
+        SELECT
+          oi.id,
+          oi.product_id,
+          oi.quantity,
+          oi.unit_price,
+          oi.line_total,
+          p.product_name,
+          p.status
+        FROM order_items oi
+        INNER JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        ORDER BY oi.id
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+
+    if (itemRows.length === 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'The online order has no products and cannot be submitted.',
+      });
+    }
+
+    const beforeSnapshot = {
+      delivery: {
+        fullName: order.delivery_name_snapshot,
+        contactNumber: order.delivery_contact_snapshot,
+        address: order.delivery_address_snapshot,
+      },
+      totalAmount: Number(order.total_amount),
+      items: itemRows.map((item) => ({
+        productId: Number(item.product_id),
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unit_price),
+      })),
+    };
+
+    if (action === 'reject') {
+      await connection.execute(
+        `
+          UPDATE orders
+          SET
+            sales_review_status = 'rejected',
+            order_status = 'cancelled',
+            sales_reviewed_by = ?,
+            sales_reviewed_at = NOW(),
+            cancelled_at = NOW(),
+            public_status_message = ?
+          WHERE id = ?
+        `,
+        [req.user.id, reason, orderId]
+      );
+      await connection.execute(
+        `
+          INSERT INTO sales_order_review_events (
+            order_id, reviewed_by, action, reason,
+            before_snapshot, after_snapshot
+          ) VALUES (?, ?, 'rejected', ?, ?, ?)
+        `,
+        [
+          orderId,
+          req.user.id,
+          reason,
+          JSON.stringify(beforeSnapshot),
+          JSON.stringify({ ...beforeSnapshot, status: 'rejected' }),
+        ]
+      );
+      await connection.commit();
+      return res.json({
+        success: true,
+        message: 'Online order rejected with a customer-facing reason.',
+        orderStatus: 'cancelled',
+        salesReviewStatus: 'rejected',
+      });
+    }
+
+    const correctedDelivery = {
+      fullName: cleanText(
+        corrections.delivery?.fullName || order.delivery_name_snapshot
+      ),
+      contactNumber: cleanText(
+        corrections.delivery?.contactNumber ||
+          order.delivery_contact_snapshot
+      ),
+      address: cleanText(
+        corrections.delivery?.address || order.delivery_address_snapshot
+      ),
+    };
+
+    if (
+      !correctedDelivery.fullName ||
+      !correctedDelivery.contactNumber ||
+      !correctedDelivery.address ||
+      correctedDelivery.fullName.length > 150 ||
+      correctedDelivery.contactNumber.length > 30 ||
+      correctedDelivery.address.length > 1000
+    ) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'The corrected delivery details are incomplete or too long.',
+      });
+    }
+
+    let reviewedItems = itemRows.map((item) => ({
+      ...item,
+      reviewedQuantity: Number(item.quantity),
+    }));
+    const submittedQuantities = corrections.itemQuantities;
+
+    if (submittedQuantities !== undefined) {
+      if (
+        !Array.isArray(submittedQuantities) ||
+        submittedQuantities.length !== itemRows.length
+      ) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Corrections must include every existing order item.',
+        });
+      }
+
+      const quantityByProduct = new Map();
+      for (const item of submittedQuantities) {
+        const productId = Number(item.productId);
+        const quantity = Number(item.quantity);
+        if (
+          !Number.isInteger(productId) ||
+          !Number.isInteger(quantity) ||
+          quantity <= 0 ||
+          quantity > 999 ||
+          quantityByProduct.has(productId)
+        ) {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'Corrected quantities must be positive whole numbers.',
+          });
+        }
+        quantityByProduct.set(productId, quantity);
+      }
+
+      reviewedItems = itemRows.map((item) => {
+        const quantity = quantityByProduct.get(Number(item.product_id));
+        return { ...item, reviewedQuantity: quantity };
+      });
+      if (reviewedItems.some((item) => !item.reviewedQuantity)) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Products cannot be added or removed during Sales correction.',
+        });
+      }
+    }
+
+    const hasCorrections =
+      correctedDelivery.fullName !== order.delivery_name_snapshot ||
+      correctedDelivery.contactNumber !== order.delivery_contact_snapshot ||
+      correctedDelivery.address !== order.delivery_address_snapshot ||
+      reviewedItems.some(
+        (item) => item.reviewedQuantity !== Number(item.quantity)
+      );
+
+    if (hasCorrections && reason.length < 5) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Explain audited corrections in at least 5 characters.',
+      });
+    }
+
+    for (const item of reviewedItems) {
+      if (item.status !== 'active') {
+        await connection.rollback();
+        return res.status(409).json({
+          success: false,
+          message: `${item.product_name} is inactive. Reject the order or resolve the product first.`,
+        });
+      }
+
+      const [inventoryRows] = await connection.execute(
+        `
+          SELECT id, current_quantity, status
+          FROM inventory_items
+          WHERE product_id = ? AND category = 'finished_product'
+          FOR UPDATE
+        `,
+        [item.product_id]
+      );
+      const available = inventoryRows
+        .filter((inventory) => inventory.status === 'active')
+        .reduce(
+          (total, inventory) =>
+            total + Number(inventory.current_quantity || 0),
+          0
+        );
+
+      if (
+        inventoryRows.filter((inventory) => inventory.status === 'active')
+          .length === 0 ||
+        available < item.reviewedQuantity
+      ) {
+        await connection.rollback();
+        return res.status(409).json({
+          success: false,
+          message: `${item.product_name} is unavailable in the reviewed quantity. Reject the order or correct the quantity.`,
+        });
+      }
+    }
+
+    let totalCents = 0;
+    for (const item of reviewedItems) {
+      const lineTotalCents =
+        Math.round(Number(item.unit_price) * 100) *
+        item.reviewedQuantity;
+      const lineTotal = lineTotalCents / 100;
+      totalCents += lineTotalCents;
+      await connection.execute(
+        `
+          UPDATE order_items
+          SET quantity = ?, line_total = ?
+          WHERE id = ?
+        `,
+        [item.reviewedQuantity, lineTotal, item.id]
+      );
+    }
+
+    const totalAmount = totalCents / 100;
+
+    const publicMessage = hasCorrections
+      ? 'Sales reviewed and corrected your order before sending it for confirmation.'
+      : 'Sales reviewed your order and sent it for confirmation.';
+    await connection.execute(
+      `
+        UPDATE orders
+        SET
+          delivery_name_snapshot = ?,
+          delivery_contact_snapshot = ?,
+          delivery_address_snapshot = ?,
+          total_amount = ?,
+          sales_review_status = 'approved',
+          sales_reviewed_by = ?,
+          sales_reviewed_at = NOW(),
+          order_status = 'for_confirmation',
+          submitted_at = NOW(),
+          public_status_message = ?
+        WHERE id = ?
+      `,
+      [
+        correctedDelivery.fullName,
+        correctedDelivery.contactNumber,
+        correctedDelivery.address,
+        totalAmount,
+        req.user.id,
+        publicMessage,
+        orderId,
+      ]
+    );
+
+    const afterSnapshot = {
+      delivery: correctedDelivery,
+      totalAmount,
+      status: 'for_confirmation',
+      items: reviewedItems.map((item) => ({
+        productId: Number(item.product_id),
+        quantity: item.reviewedQuantity,
+        unitPrice: Number(item.unit_price),
+      })),
+    };
+    await connection.execute(
+      `
+        INSERT INTO sales_order_review_events (
+          order_id, reviewed_by, action, reason,
+          before_snapshot, after_snapshot
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [
+        orderId,
+        req.user.id,
+        hasCorrections ? 'corrected_and_submitted' : 'submitted',
+        reason || null,
+        JSON.stringify(beforeSnapshot),
+        JSON.stringify(afterSnapshot),
+      ]
+    );
+
+    await connection.commit();
+    return res.json({
+      success: true,
+      message: 'Online order reviewed and submitted to CDM.',
+      orderStatus: 'for_confirmation',
+      salesReviewStatus: 'approved',
+      totalAmount,
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Storefront review rollback error:', rollbackError);
+      }
+    }
+    console.error('Review storefront order error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to review the online order.',
+    });
+  } finally {
+    if (connection) connection.release();
   }
 };

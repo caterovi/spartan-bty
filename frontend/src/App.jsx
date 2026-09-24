@@ -15,6 +15,8 @@ import ProductDetail from './pages/ProductDetail';
 import CustomerLogin from './pages/CustomerLogin';
 import CustomerSignup from './pages/CustomerSignup';
 import CustomerAccount from './pages/CustomerAccount';
+import CustomerCart from './pages/CustomerCart';
+import CustomerOrders from './pages/CustomerOrders';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Marketing from './pages/Marketing';
@@ -80,6 +82,9 @@ export default function App() {
 
         <Route element={<CustomerProtectedRoute />}>
           <Route path="/account" element={<CustomerAccount />} />
+          <Route path="/cart" element={<CustomerCart />} />
+          <Route path="/orders" element={<CustomerOrders />} />
+          <Route path="/orders/:id" element={<CustomerOrders />} />
         </Route>
 
         <Route element={<ProtectedRoute />}>

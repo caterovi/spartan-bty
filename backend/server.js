@@ -59,6 +59,7 @@ app.get('/api/health', async (req, res, next) => {
 // Public storefront and authentication routes
 app.use('/api/auth', require('./routes/auth.routes'));
 app.use('/api/customer-auth', require('./routes/customerAuth.routes'));
+app.use('/api/customer', require('./routes/customerCommerce.routes'));
 app.use('/api/storefront', require('./routes/storefront.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/dashboard',require('./routes/dashboard.routes'));
