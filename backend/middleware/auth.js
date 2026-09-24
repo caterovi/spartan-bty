@@ -20,7 +20,30 @@ function verifyToken(req, res, next) {
   }
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET,
+      {
+        issuer: 'spartan-bty',
+        audience: 'staff',
+      }
+    );
+
+    if (
+      decoded.accountType !== 'staff' ||
+      ![
+        'head',
+        'specialist',
+        'system_configuration',
+      ].includes(decoded.role)
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'A staff account is required.',
+      });
+    }
+
+    req.user = decoded;
     next();
   } catch (error) {
     const message =

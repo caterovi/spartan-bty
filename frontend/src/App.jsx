@@ -6,10 +6,15 @@ import {
 } from 'react-router-dom';
 
 import ProtectedRoute from './components/ProtectedRoute';
+import CustomerProtectedRoute from './components/CustomerProtectedRoute';
 
 import Layout from './components/Layout';
 
 import Landing from './pages/Landing';
+import ProductDetail from './pages/ProductDetail';
+import CustomerLogin from './pages/CustomerLogin';
+import CustomerSignup from './pages/CustomerSignup';
+import CustomerAccount from './pages/CustomerAccount';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Marketing from './pages/Marketing';
@@ -51,16 +56,6 @@ function RoleRoute({ allowedRoles, children }) {
     : <Navigate to="/unauthorized" replace />;
 }
 
-function ComingSoon({ title, description }) {
-  return (
-    <section style={styles.placeholder}>
-      <p style={styles.eyebrow}>MODULE FOUNDATION</p>
-      <h1 style={styles.title}>{title}</h1>
-      <p style={styles.description}>{description}</p>
-    </section>
-  );
-}
-
 function Unauthorized() {
   return (
     <section style={styles.placeholder}>
@@ -78,7 +73,14 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
+        <Route path="/products/:id" element={<ProductDetail />} />
+        <Route path="/customer/login" element={<CustomerLogin />} />
+        <Route path="/customer/signup" element={<CustomerSignup />} />
         <Route path="/login" element={<Login />} />
+
+        <Route element={<CustomerProtectedRoute />}>
+          <Route path="/account" element={<CustomerAccount />} />
+        </Route>
 
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>

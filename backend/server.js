@@ -56,8 +56,10 @@ app.get('/api/health', async (req, res, next) => {
   }
 });
 
-// Authentication routes
+// Public storefront and authentication routes
 app.use('/api/auth', require('./routes/auth.routes'));
+app.use('/api/customer-auth', require('./routes/customerAuth.routes'));
+app.use('/api/storefront', require('./routes/storefront.routes'));
 app.use('/api/users', require('./routes/user.routes'));
 app.use('/api/dashboard',require('./routes/dashboard.routes'));
 app.use('/api/sales',require('./routes/sales.routes'));
@@ -88,8 +90,12 @@ app.use((error, req, res, next) => {
   });
 });
 
-const PORT = Number(process.env.PORT) || 5000;
+if (require.main === module) {
+  const PORT = Number(process.env.PORT) || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Spartan BTY MIS backend running on port ${PORT}`);
-});
+  app.listen(PORT, () => {
+    console.log(`Spartan BTY MIS backend running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

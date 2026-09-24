@@ -20,8 +20,13 @@ export default function ProtectedRoute() {
   const token = localStorage.getItem('token');
   const user = getStoredUser();
   const location = useLocation();
+  const isStaffUser = [
+    'head',
+    'specialist',
+    'system_configuration',
+  ].includes(user?.role) && user?.accountType === 'staff';
 
-  if (!token || !user) {
+  if (!token || !user || !isStaffUser) {
     return <Navigate to="/login" replace />;
   }
 

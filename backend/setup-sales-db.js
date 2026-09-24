@@ -82,6 +82,9 @@ async function setupSalesDatabase() {
         sku VARCHAR(50) NOT NULL,
         product_name VARCHAR(120) NOT NULL,
         default_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+        description TEXT NULL,
+        storefront_category VARCHAR(80) NULL,
+        image_url VARCHAR(2048) NULL,
 
         status ENUM(
           'active',

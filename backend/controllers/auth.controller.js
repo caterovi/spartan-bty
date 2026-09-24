@@ -4,6 +4,8 @@ const pool = require('../config/db');
 
 const ACCESS_EXPIRES = '1h';
 const REFRESH_EXPIRES = '7d';
+const TOKEN_ISSUER = 'spartan-bty';
+const STAFF_AUDIENCE = 'staff';
 
 function createAccessToken(user) {
   return jwt.sign(
@@ -13,10 +15,13 @@ function createAccessToken(user) {
       role: user.role,
       departmentId: user.department_id || null,
       departmentCode: user.department_code || null,
+      accountType: 'staff',
     },
     process.env.JWT_SECRET,
     {
       expiresIn: ACCESS_EXPIRES,
+      issuer: TOKEN_ISSUER,
+      audience: STAFF_AUDIENCE,
     }
   );
 }
@@ -25,10 +30,13 @@ function createRefreshToken(user) {
   return jwt.sign(
     {
       id: user.id,
+      accountType: 'staff',
     },
     process.env.JWT_REFRESH_SECRET,
     {
       expiresIn: REFRESH_EXPIRES,
+      issuer: TOKEN_ISSUER,
+      audience: STAFF_AUDIENCE,
     }
   );
 }
@@ -46,6 +54,7 @@ function formatUser(user) {
     departmentName: user.department_name || null,
     mustChangePassword: Boolean(user.must_change_password),
     lastLoginAt: user.last_login_at,
+    accountType: 'staff',
   };
 }
 
@@ -154,8 +163,16 @@ exports.refresh = async (req, res) => {
 
     const decoded = jwt.verify(
       refreshToken,
-      process.env.JWT_REFRESH_SECRET
+      process.env.JWT_REFRESH_SECRET,
+      {
+        issuer: TOKEN_ISSUER,
+        audience: STAFF_AUDIENCE,
+      }
     );
+
+    if (decoded.accountType !== 'staff') {
+      throw new Error('Invalid staff refresh token.');
+    }
 
     const [rows] = await pool.execute(
       `
@@ -433,6 +450,7 @@ exports.getCurrentUser = async (req, res) => {
         departmentCode:
           user.department_code || null,
         createdAt: user.created_at,
+        accountType: 'staff',
       },
     });
   } catch (error) {

@@ -1,601 +1,445 @@
 import {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
+import {
   ArrowRight,
+  ChevronRight,
+  LoaderCircle,
   MapPin,
+  PackageSearch,
+  Search,
   ShieldCheck,
+  Sparkles,
+  Store,
+  X,
 } from 'lucide-react';
 
-import {
-  Link,
-} from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
+import api from '../api/axiosInstance';
 import logo from '../assets/Spartan_BTY_logo.webp';
+import StorefrontAccountLinks from '../components/StorefrontAccountLinks';
+import '../styles/storefront.css';
 
-import {
-  colors,
-  font,
-} from '../styles/tokens';
+const UNCATEGORIZED = 'Uncategorized';
+
+function formatPrice(value) {
+  if (value === null || value === undefined) {
+    return 'Price unavailable';
+  }
+
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+  }).format(Number(value));
+}
+
+function ProductImage({ product }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (product.imageUrl && !imageFailed) {
+    return (
+      <img
+        src={product.imageUrl}
+        alt={`${product.name} product`}
+        loading="lazy"
+        onError={() => setImageFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div className="storefront-product-placeholder" aria-hidden="true">
+      <Sparkles size={28} strokeWidth={1.4} />
+      <span>Product image coming soon</span>
+    </div>
+  );
+}
+
+function ProductCard({ product }) {
+  const category = product.category || UNCATEGORIZED;
+
+  return (
+    <article className="storefront-product-card">
+      <div className="storefront-product-image">
+        <ProductImage product={product} />
+
+        <span
+          className={`storefront-availability storefront-availability-${product.availability.status}`}
+        >
+          {product.availability.label}
+        </span>
+      </div>
+
+      <div className="storefront-product-copy">
+        <p className="storefront-product-category">{category}</p>
+        <h3>{product.name}</h3>
+        <p className="storefront-product-description">
+          {product.description ||
+            'More product information will be added soon.'}
+        </p>
+
+        <div className="storefront-product-footer">
+          <div>
+            <strong>{formatPrice(product.price)}</strong>
+            <span>{product.sku}</span>
+          </div>
+
+          <Link
+            to={`/products/${product.id}`}
+            aria-label={`View details for ${product.name}`}
+          >
+            View details
+            <ChevronRight size={16} />
+          </Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CatalogSkeleton() {
+  return (
+    <div
+      className="storefront-product-grid"
+      aria-label="Loading products"
+      aria-busy="true"
+    >
+      {Array.from({ length: 6 }, (_, index) => (
+        <div className="storefront-product-skeleton" key={index}>
+          <div />
+          <span />
+          <span />
+          <span />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Landing() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
+  const [requestVersion, setRequestVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadProducts() {
+      setLoading(true);
+      setError('');
+
+      try {
+        const response = await api.get('/storefront/products', {
+          signal: controller.signal,
+        });
+
+        setProducts(response.data.products || []);
+      } catch (requestError) {
+        if (requestError.code === 'ERR_CANCELED') {
+          return;
+        }
+
+        setProducts([]);
+        setError(
+          requestError.response?.data?.message ||
+            'The product catalog could not be loaded. Please try again.'
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadProducts();
+
+    return () => controller.abort();
+  }, [requestVersion]);
+
+  const categories = useMemo(
+    () =>
+      [...new Set(products.map((product) =>
+        product.category || UNCATEGORIZED
+      ))].sort((first, second) => first.localeCompare(second)),
+    [products]
+  );
+
+  const filteredProducts = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const productCategory = product.category || UNCATEGORIZED;
+      const matchesCategory =
+        category === 'all' || productCategory === category;
+      const matchesSearch =
+        !query ||
+        [
+          product.name,
+          product.sku,
+          product.description,
+          productCategory,
+        ].some((value) =>
+          String(value || '').toLowerCase().includes(query)
+        );
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, search, category]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setCategory('all');
+  };
+
   return (
-    <div className="landing-page">
-      <style>{landingStyles}</style>
-
-      <header className="landing-header">
-        <div className="landing-header-inner">
-          <Link
-            to="/"
-            className="landing-brand"
-            aria-label="Spartan BTY home"
-          >
-            <img
-              src={logo}
-              alt="Spartan BTY Inc. logo"
-              className="landing-logo"
-            />
-
-            <span className="landing-brand-name">
-              Spartan{' '}
-              <span>BTY</span>
-            </span>
+    <div className="storefront-page">
+      <header className="storefront-header">
+        <div className="storefront-shell storefront-header-inner">
+          <Link to="/" className="storefront-brand" aria-label="Spartan BTY home">
+            <img src={logo} alt="" />
+            <span>Spartan <strong>BTY</strong></span>
           </Link>
 
-          <Link
-            to="/login"
-            className="landing-login-button"
-          >
-            Login
-            <ArrowRight size={16} />
-          </Link>
+          <nav className="storefront-nav" aria-label="Storefront navigation">
+            <a href="#products">Products</a>
+            <a href="#ordering">How it works</a>
+            <a href="#contact">Contact</a>
+          </nav>
+
+          <StorefrontAccountLinks />
         </div>
       </header>
 
       <main>
-        <section className="landing-hero">
-          <div className="hero-glow hero-glow-one" />
-          <div className="hero-glow hero-glow-two" />
+        <section className="storefront-hero">
+          <div className="storefront-hero-orb storefront-hero-orb-one" />
+          <div className="storefront-hero-orb storefront-hero-orb-two" />
 
-          <div className="landing-hero-content">
-            <p className="landing-eyebrow">
-              ESTABLISHED 2018 · IMUS,
-              CAVITE
-            </p>
-
-            <h1 className="landing-hero-title">
-              Skin that speaks
-              <br />
-              for itself.
-            </h1>
-
-            <p className="landing-hero-description">
-              Spartan BTY Inc. is a
-              beauty and cosmetics company
-              committed to organized,
-              quality-focused operations
-              and dependable customer
-              service.
-            </p>
-
-            <div className="landing-restricted-note">
-              <ShieldCheck size={17} />
-
-              <span>
-                The management system is
-                restricted to authorized
-                Spartan BTY personnel.
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-about-section">
-          <div className="landing-about-grid">
-            <div className="landing-about-heading">
-              <p className="landing-section-label">
-                ABOUT THE COMPANY
+          <div className="storefront-shell storefront-hero-grid">
+            <div className="storefront-hero-copy">
+              <p className="storefront-eyebrow">BEAUTY FROM IMUS, CAVITE</p>
+              <h1>Discover your next Spartan BTY favorite.</h1>
+              <p className="storefront-hero-description">
+                Explore the current Spartan BTY catalog in one place, with
+                product information and availability drawn directly from our
+                management system.
               </p>
 
-              <h2>
-                A growing local beauty
-                and cosmetics brand
-              </h2>
-            </div>
-
-            <div className="landing-about-content">
-              <p>
-                Spartan BTY Inc. began in
-                2018 with a self-formulated
-                fragrance developed in
-                Imus, Cavite. The company
-                later expanded into
-                skincare and cosmetics
-                products while maintaining
-                its focus on product
-                quality and customer
-                experience.
-              </p>
-
-              <p>
-                As the company continued
-                to grow, its daily
-                operations required a
-                more organized approach
-                to managing business
-                information, coordinating
-                responsibilities, and
-                monitoring ongoing
-                activities.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-mis-section">
-          <div className="landing-mis-content">
-            <div>
-              <p className="landing-section-label">
-                INTERNAL MANAGEMENT SYSTEM
-              </p>
-
-              <h2>
-                Supporting organized
-                business operations
-              </h2>
-
-              <p>
-                The Web-Based Management
-                Information System
-                provides authorized
-                personnel with an
-                integrated platform for
-                recording information,
-                coordinating workflows,
-                monitoring operational
-                activities, and generating
-                management reports.
-              </p>
-            </div>
-
-            <div className="landing-location-card">
-              <MapPin size={22} />
-
-              <div>
-                <strong>
-                  Spartan BTY Inc.
-                </strong>
-
-                <p>
-                  Tamsui Avenue,
-                  Bayan Luma II,
-                  Imus, Cavite 4103
-                </p>
+              <div className="storefront-hero-actions">
+                <a href="#products" className="storefront-primary-button">
+                  Shop products
+                  <ArrowRight size={17} />
+                </a>
+                <a href="#ordering" className="storefront-text-link">
+                  How ordering works
+                </a>
               </div>
+
+              <p className="storefront-phase-note">
+                <ShieldCheck size={16} />
+                Product browsing and customer accounts are live. Cart and
+                checkout are planned for a later storefront phase.
+              </p>
             </div>
+
+            <div className="storefront-hero-art" aria-hidden="true">
+              <div className="storefront-hero-card storefront-hero-card-back" />
+              <div className="storefront-hero-card storefront-hero-card-main">
+                <span>SPARTAN BTY</span>
+                <img src={logo} alt="" />
+                <strong>Beauty, clearly presented.</strong>
+                <small>Established 2018</small>
+              </div>
+              <Sparkles className="storefront-hero-sparkle" size={34} />
+            </div>
+          </div>
+        </section>
+
+        <section id="products" className="storefront-products-section">
+          <div className="storefront-shell">
+            <div className="storefront-section-heading">
+              <div>
+                <p className="storefront-eyebrow">OUR PRODUCTS</p>
+                <h2>Explore the collection</h2>
+              </div>
+              <p>
+                Search the live catalog or narrow it by the categories currently
+                recorded for each product.
+              </p>
+            </div>
+
+            {!loading && !error && products.length > 0 && (
+              <div className="storefront-catalog-tools">
+                <label className="storefront-search-field">
+                  <span>Search products</span>
+                  <div>
+                    <Search size={18} />
+                    <input
+                      type="search"
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Search by name, category, or SKU"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch('')}
+                        aria-label="Clear product search"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                </label>
+
+                <label className="storefront-category-field">
+                  <span>Category</span>
+                  <select
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                  >
+                    <option value="all">All products</option>
+                    {categories.map((item) => (
+                      <option key={item} value={item}>{item}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
+            <div className="storefront-catalog-status" aria-live="polite">
+              {!loading && !error && products.length > 0 && (
+                <span>
+                  Showing {filteredProducts.length} of {products.length}{' '}
+                  {products.length === 1 ? 'product' : 'products'}
+                </span>
+              )}
+            </div>
+
+            {loading ? (
+              <CatalogSkeleton />
+            ) : error ? (
+              <div className="storefront-state-card" role="alert">
+                <PackageSearch size={30} />
+                <h3>We could not load the catalog</h3>
+                <p>{error}</p>
+                <button
+                  type="button"
+                  className="storefront-primary-button"
+                  onClick={() => setRequestVersion((version) => version + 1)}
+                >
+                  <LoaderCircle size={17} />
+                  Try again
+                </button>
+              </div>
+            ) : products.length === 0 ? (
+              <div className="storefront-state-card">
+                <PackageSearch size={30} />
+                <h3>No products are available yet</h3>
+                <p>Active products will appear here once they are added to the catalog.</p>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="storefront-state-card">
+                <Search size={30} />
+                <h3>No matching products</h3>
+                <p>Try a different search term or view every category.</p>
+                <button type="button" onClick={clearFilters}>
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              <div className="storefront-product-grid">
+                {filteredProducts.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section id="ordering" className="storefront-ordering-section">
+          <div className="storefront-shell">
+            <div className="storefront-section-heading storefront-section-heading-light">
+              <div>
+                <p className="storefront-eyebrow">HOW ORDERING WILL WORK</p>
+                <h2>A clear path from browsing to after-sales care</h2>
+              </div>
+              <p>
+                This release is product browsing only. The account and ordering
+                steps below will be introduced in future phases.
+              </p>
+            </div>
+
+            <ol className="storefront-ordering-grid">
+              <li>
+                <span>01</span>
+                <Store size={22} />
+                <h3>Browse products</h3>
+                <p>Explore active products, details, prices, and current availability.</p>
+              </li>
+              <li>
+                <span>02</span>
+                <ShieldCheck size={22} />
+                <h3>Account and order</h3>
+                <p>Create a customer account now. Cart and checkout will be
+                  added before online ordering opens.</p>
+              </li>
+              <li>
+                <span>03</span>
+                <Sparkles size={22} />
+                <h3>Staff review and care</h3>
+                <p>Future online orders will pass through Sales, CDM, Fulfillment, and CRM.</p>
+              </li>
+            </ol>
+          </div>
+        </section>
+
+        <section id="contact" className="storefront-contact-section">
+          <div className="storefront-shell storefront-contact-grid">
+            <div>
+              <p className="storefront-eyebrow">CONTACT & LOCATION</p>
+              <h2>Visit Spartan BTY Inc.</h2>
+              <p>
+                The current company records provide the location below. A public
+                phone number and email address are not configured in this system yet.
+              </p>
+            </div>
+
+            <address className="storefront-address-card">
+              <MapPin size={24} />
+              <div>
+                <strong>Spartan BTY Inc.</strong>
+                <span>Tamsui Avenue, Bayan Luma II</span>
+                <span>Imus, Cavite 4103</span>
+              </div>
+            </address>
           </div>
         </section>
       </main>
 
-      <footer className="landing-footer">
-        <div className="landing-footer-inner">
-          <div>
-            <strong>
-              Spartan BTY Inc.
-            </strong>
-
-            <p>
-              Web-Based MIS
-            </p>
+      <footer className="storefront-footer">
+        <div className="storefront-shell storefront-footer-inner">
+          <div className="storefront-footer-brand">
+            <img src={logo} alt="" />
+            <div>
+              <strong>Spartan BTY Inc.</strong>
+              <span>Beauty and cosmetics · Established 2018</span>
+            </div>
           </div>
 
-          <p className="landing-footer-copy">
-            ©{' '}
-            {new Date().getFullYear()}{' '}
-            Spartan BTY Inc.
-          </p>
+          <div className="storefront-footer-meta">
+            <Link to="/login">Authorized staff access</Link>
+            <span>© {new Date().getFullYear()} Spartan BTY Inc.</span>
+          </div>
         </div>
       </footer>
     </div>
   );
 }
-
-const landingStyles = `
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-  }
-
-  html {
-    scroll-behavior: smooth;
-  }
-
-  body {
-    margin: 0;
-  }
-
-  .landing-page {
-    width: 100%;
-    max-width: 100%;
-    overflow-x: hidden;
-    background: #ffffff;
-    color: ${colors.ink};
-    font-family: ${font.body};
-  }
-
-  .landing-header {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    width: 100%;
-    border-bottom: 1px solid ${colors.border};
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(12px);
-  }
-
-  .landing-header-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: min(100%, 1180px);
-    min-height: 72px;
-    margin: 0 auto;
-    padding: 8px 16px;
-  }
-
-  .landing-brand {
-    display: inline-flex;
-    align-items: center;
-    min-width: 0;
-    color: ${colors.ink};
-    text-decoration: none;
-  }
-
-  .landing-logo {
-    display: block;
-    width: 50px;
-    height: 50px;
-    flex: 0 0 auto;
-    object-fit: contain;
-  }
-
-  .landing-brand-name {
-    margin-left: 8px;
-    color: ${colors.ink};
-    font-family: ${font.display};
-    font-size: 18px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .landing-brand-name span {
-    color: ${colors.roseDeep};
-  }
-
-  .landing-login-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    gap: 7px;
-    padding: 0 15px;
-    border-radius: 9px;
-    background: ${colors.roseDeep};
-    color: #ffffff;
-    font-size: 12px;
-    font-weight: 700;
-    text-decoration: none;
-    transition:
-      transform 150ms ease,
-      box-shadow 150ms ease;
-  }
-
-  .landing-login-button:hover {
-    transform: translateY(-1px);
-    box-shadow:
-      0 10px 24px
-      rgba(127, 52, 71, 0.2);
-  }
-
-  .landing-hero {
-    position: relative;
-    display: grid;
-    place-items: center;
-    min-height: 610px;
-    overflow: hidden;
-    padding: 76px 20px;
-    background: ${colors.blush};
-    text-align: center;
-  }
-
-  .hero-glow {
-    position: absolute;
-    border-radius: 50%;
-    pointer-events: none;
-  }
-
-  .hero-glow-one {
-    top: -150px;
-    left: 50%;
-    width: 520px;
-    height: 520px;
-    transform: translateX(-50%);
-    background:
-      radial-gradient(
-        circle,
-        ${colors.rose}58 0%,
-        ${colors.rose}00 70%
-      );
-  }
-
-  .hero-glow-two {
-    right: -140px;
-    bottom: -170px;
-    width: 360px;
-    height: 360px;
-    border: 1px dashed ${colors.rose}55;
-  }
-
-  .landing-hero-content {
-    position: relative;
-    z-index: 2;
-    width: min(100%, 760px);
-  }
-
-  .landing-eyebrow {
-    margin: 0 0 22px;
-    color: ${colors.roseDeep};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1.8px;
-  }
-
-  .landing-hero-title {
-    margin: 0;
-    color: ${colors.ink};
-    font-family: ${font.display};
-    font-size: clamp(44px, 13vw, 68px);
-    font-weight: 500;
-    line-height: 1.03;
-    letter-spacing: -1.4px;
-  }
-
-  .landing-hero-description {
-    max-width: 62ch;
-    margin: 24px auto 0;
-    color: ${colors.mutedInk};
-    font-size: 15px;
-    line-height: 1.7;
-  }
-
-  .landing-restricted-note {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    max-width: 520px;
-    gap: 9px;
-    margin-top: 28px;
-    padding: 11px 15px;
-    border: 1px solid ${colors.border};
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.62);
-    color: ${colors.roseDeep};
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.5;
-  }
-
-  .landing-about-section {
-    padding: 72px 18px;
-    background: #ffffff;
-  }
-
-  .landing-about-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    width: min(100%, 1040px);
-    gap: 28px;
-    margin: 0 auto;
-  }
-
-  .landing-section-label {
-    margin: 0 0 12px;
-    color: ${colors.roseDeep};
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 1.8px;
-  }
-
-  .landing-about-heading h2,
-  .landing-mis-content h2 {
-    max-width: 18ch;
-    margin: 0;
-    color: ${colors.ink};
-    font-family: ${font.display};
-    font-size: 30px;
-    font-weight: 500;
-    line-height: 1.2;
-  }
-
-  .landing-about-content {
-    display: grid;
-    gap: 17px;
-  }
-
-  .landing-about-content p {
-    max-width: 68ch;
-    margin: 0;
-    color: ${colors.mutedInk};
-    font-size: 14px;
-    line-height: 1.75;
-  }
-
-  .landing-mis-section {
-    padding: 72px 18px;
-    background: ${colors.ink};
-    color: #ffffff;
-  }
-
-  .landing-mis-content {
-    display: grid;
-    grid-template-columns: 1fr;
-    width: min(100%, 1040px);
-    gap: 34px;
-    margin: 0 auto;
-  }
-
-  .landing-mis-content h2 {
-    color: #ffffff;
-  }
-
-  .landing-mis-content > div > p:last-child {
-    max-width: 66ch;
-    margin: 18px 0 0;
-    color: rgba(255, 255, 255, 0.68);
-    font-size: 14px;
-    line-height: 1.75;
-  }
-
-  .landing-location-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    padding: 22px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 13px;
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .landing-location-card svg {
-    flex: 0 0 auto;
-    color: ${colors.rose};
-  }
-
-  .landing-location-card strong {
-    color: #ffffff;
-    font-family: ${font.display};
-    font-size: 18px;
-    font-weight: 600;
-  }
-
-  .landing-location-card p {
-    max-width: 38ch;
-    margin: 7px 0 0;
-    color: rgba(255, 255, 255, 0.64);
-    font-size: 13px;
-    line-height: 1.65;
-  }
-
-  .landing-footer {
-    padding: 27px 18px;
-    background: #20191b;
-    color: #ffffff;
-  }
-
-  .landing-footer-inner {
-    display: flex;
-    flex-direction: column;
-    width: min(100%, 1180px);
-    gap: 17px;
-    margin: 0 auto;
-  }
-
-  .landing-footer strong {
-    font-family: ${font.display};
-    font-size: 17px;
-    font-weight: 600;
-  }
-
-  .landing-footer p {
-    max-width: 65ch;
-    margin: 6px 0 0;
-    color: rgba(255, 255, 255, 0.57);
-    font-size: 11px;
-    line-height: 1.6;
-  }
-
-  .landing-footer-copy {
-    margin: 0 !important;
-  }
-
-  @media (min-width: 600px) {
-    .landing-header-inner {
-      padding-inline: 28px;
-    }
-
-    .landing-footer-inner {
-      flex-direction: row;
-      align-items: flex-end;
-      justify-content: space-between;
-    }
-  }
-
-  @media (min-width: 768px) {
-    .landing-header-inner {
-      min-height: 80px;
-      padding-inline: 40px;
-    }
-
-    .landing-logo {
-      width: 58px;
-      height: 58px;
-    }
-
-    .landing-brand-name {
-      font-size: 20px;
-    }
-
-    .landing-hero {
-      min-height: 660px;
-      padding: 100px 40px;
-    }
-
-    .landing-about-section,
-    .landing-mis-section {
-      padding: 92px 40px;
-    }
-
-    .landing-about-grid {
-      grid-template-columns:
-        minmax(0, 0.85fr)
-        minmax(0, 1.15fr);
-      gap: 70px;
-    }
-
-    .landing-mis-content {
-      grid-template-columns:
-        minmax(0, 1fr)
-        minmax(280px, 0.72fr);
-      align-items: center;
-      gap: 70px;
-    }
-  }
-
-  @media (max-width: 420px) {
-    .landing-brand-name {
-      font-size: 16px;
-    }
-
-    .landing-logo {
-      width: 45px;
-      height: 45px;
-    }
-
-    .landing-login-button {
-      padding-inline: 11px;
-      font-size: 11px;
-    }
-
-    .landing-restricted-note {
-      align-items: flex-start;
-      border-radius: 12px;
-      text-align: left;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      transition: none !important;
-    }
-  }
-`;

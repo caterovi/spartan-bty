@@ -25,7 +25,10 @@
  * change. No account lockout is introduced (per audit guidance) — the
  * protection is temporary throttling that self-heals after each window.
  */
-const { rateLimit } = require('express-rate-limit');
+const {
+  ipKeyGenerator,
+  rateLimit,
+} = require('express-rate-limit');
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const ACCOUNT_MAX_FAILED = 10; // failed attempts per IP + account
@@ -57,7 +60,7 @@ const loginAccountLimiter = rateLimit({
       .trim()
       .toLowerCase();
 
-    return `${req.ip}:${identifier}`;
+    return `${ipKeyGenerator(req.ip)}:${identifier}`;
   },
 });
 
@@ -65,7 +68,6 @@ const loginAccountLimiter = rateLimit({
 const loginIpLimiter = rateLimit({
   ...baseOptions,
   limit: IP_MAX_FAILED,
-  keyGenerator: (req) => req.ip,
 });
 
 module.exports = {
